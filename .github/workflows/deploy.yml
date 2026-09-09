@@ -48,13 +48,30 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Standalone Bundle
+        run: node scripts/build.js
+
+      - name: Assemble GitHub Pages Distribution
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r dist _site/
+          cp -r src _site/
+          if [ -d "assets" ]; then cp -r assets _site/; fi
+          touch _site/.nojekyll
+
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -369,7 +369,7 @@ describe('State & Memory Leak Stress-Testing', () => {
     });
 
     it('robustly sanitizes corrupt inputs (NaN, null, negative speeds, non-finite values)', () => {
-      const tc = new TimeController();
+      const tc = new TimeController(new Date(1700000000000));
 
       // Corrupt setTime
       tc.setTime(NaN);
