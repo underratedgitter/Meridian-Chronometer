@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "build": "node scripts/build.js",
     "test": "node --test test/*.test.js",
     "test:e2e": "playwright test",
     "start": "node server.js"
