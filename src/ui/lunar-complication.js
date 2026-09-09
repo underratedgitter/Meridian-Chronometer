@@ -61,8 +61,12 @@ export class LunarComplication {
 
     ctx.restore();
 
-    // 4. Update DOM telemetry
-    this.updateTelemetry(complication);
+    // 4. Update DOM telemetry throttled at 2Hz
+    const curSec = Math.floor(date.getTime() / 500);
+    if (curSec !== this.lastRenderSec) {
+      this.lastRenderSec = curSec;
+      this.updateTelemetry(complication);
+    }
   }
 
   drawStarfieldAperture(ctx, cx, cy, r, dpr) {

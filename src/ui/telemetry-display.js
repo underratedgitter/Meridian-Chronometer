@@ -12,6 +12,22 @@ export class TelemetryDisplay {
     this.analemmaCanvas = analemmaCanvasElement;
     this.analemmaCtx = analemmaCanvasElement ? analemmaCanvasElement.getContext('2d') : null;
     this.analemmaData = this.precomputeYearlyAnalemma();
+    this.lastRenderSec = -1;
+    this.lastObserverName = '';
+    this.width = 0;
+    this.height = 0;
+    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.resize();
+  }
+
+  resize() {
+    if (!this.analemmaCanvas) return;
+    const rect = this.analemmaCanvas.getBoundingClientRect();
+    this.width = rect.width || 280;
+    this.height = rect.height || 180;
+    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.analemmaCanvas.width = Math.round(this.width * this.dpr);
+    this.analemmaCanvas.height = Math.round(this.height * this.dpr);
   }
 
   /**
@@ -45,10 +61,14 @@ export class TelemetryDisplay {
   }
 
   render(date, observer) {
-    const telemetry = getCelestialTelemetry(date, observer.lat, observer.lon);
     const solarPos = getSolarPosition(date);
+    const currentSec = Math.floor(date.getTime() / 500); // 2Hz DOM update
+    const observerChanged = this.lastObserverName !== observer.name;
 
-    if (this.container) {
+    if (this.container && (currentSec !== this.lastRenderSec || observerChanged)) {
+      this.lastRenderSec = currentSec;
+      this.lastObserverName = observer.name;
+      const telemetry = getCelestialTelemetry(date, observer.lat, observer.lon);
       const eotFormatted = this.formatEoT(telemetry.equationOfTimeMinutes);
       const eotAheadBehind = telemetry.equationOfTimeMinutes >= 0 ? 'FAST (Sun ahead)' : 'SLOW (Sun behind)';
 
@@ -136,13 +156,9 @@ export class TelemetryDisplay {
   drawAnalemma(date, currentSolarPos) {
     const canvas = this.analemmaCanvas;
     const ctx = this.analemmaCtx;
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = Math.round((rect.width || 200) * dpr);
-    canvas.height = Math.round((rect.height || 160) * dpr);
     const w = canvas.width;
     const h = canvas.height;
+    const dpr = this.dpr;
 
     ctx.save();
     ctx.clearRect(0, 0, w, h);
