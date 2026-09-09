@@ -1,0 +1,918 @@
+/**
+ * Meridian Chronometer — Luxury Astronomical Horology & Aerospace Observatory Stylesheet
+ * A. Lange & Söhne meets NASA JPL.
+ */
+
+:root {
+  /* Chromatic Architecture */
+  --bg-space: #07090e;
+  --bg-obsidian: #090a0f;
+  --bg-titanium: #11151e;
+  --bg-titanium-elevated: #161c28;
+  --bg-dial-well: #0c0f16;
+
+  /* Metallic Accents */
+  --gold-meridian: #c8aa6e;
+  --gold-bright: #e8ca8e;
+  --gold-dark: #8f7645;
+  --gold-glow: rgba(200, 170, 110, 0.35);
+
+  --platinum: #d8e2ec;
+  --platinum-muted: #8e9eaf;
+  --platinum-hairline: rgba(216, 226, 236, 0.12);
+  --platinum-glow: rgba(216, 226, 236, 0.25);
+
+  /* Aerospace Astrometric Accents */
+  --sidereal-azure: #4fa4e8;
+  --solar-flame: #e27d60;
+  --twilight-violet: #7e57c2;
+  --status-green: #38ef7d;
+
+  /* Typography */
+  --font-serif: "Cinzel", "Times New Roman", -apple-system, serif;
+  --font-mono: "Space Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Elevation and Bevels */
+  --border-hairline: 1px solid var(--platinum-hairline);
+  --shadow-bezel: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 8px 32px rgba(0, 0, 0, 0.6);
+  --bevel-well: inset 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 0 12px rgba(0, 0, 0, 0.6);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-space);
+  color: var(--platinum);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(30, 45, 75, 0.3), transparent 70%),
+    radial-gradient(circle at 10% 90%, rgba(200, 170, 110, 0.04), transparent 50%),
+    linear-gradient(180deg, var(--bg-obsidian) 0%, var(--bg-space) 100%);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numeric tabular feature setting everywhere to eliminate jitter */
+.tnum,
+.stat-value,
+.chronometer-readout-time,
+.eot-value,
+.field-value,
+.speed-readout {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ==========================================================================
+   Header & Astronomical Navigation Deck
+   ========================================================================== */
+.observatory-header {
+  border-bottom: var(--border-hairline);
+  background: rgba(9, 10, 15, 0.85);
+  backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 2rem;
+}
+
+.header-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.brand-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+}
+
+.brand-title {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  letter-spacing: 0.18em;
+  color: var(--gold-meridian);
+  text-transform: uppercase;
+  font-weight: 600;
+  text-shadow: 0 0 12px var(--gold-glow);
+}
+
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.observatory-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.audio-toggle-btn {
+  background: transparent;
+  border: var(--border-hairline);
+  color: var(--platinum);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.audio-toggle-btn:hover {
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+}
+
+.audio-toggle-btn.active {
+  border-color: var(--gold-meridian);
+  background: rgba(200, 170, 110, 0.12);
+  color: var(--gold-bright);
+}
+
+.sound-pip {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--platinum-muted);
+}
+
+.audio-toggle-btn.active .sound-pip {
+  background: var(--gold-bright);
+  box-shadow: 0 0 6px var(--gold-meridian);
+}
+
+/* ==========================================================================
+   Main Observatory Grid Layout
+   ========================================================================== */
+.observatory-main {
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.observatory-top-row {
+  display: grid;
+  grid-template-columns: 420px 1fr 340px;
+  gap: 1.5rem;
+}
+
+@media (max-width: 1320px) {
+  .observatory-top-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .observatory-top-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   Instrument Modules (Panels & Frames)
+   ========================================================================== */
+.instrument-card {
+  background: var(--bg-titanium);
+  border: var(--border-hairline);
+  box-shadow: var(--shadow-bezel);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.instrument-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(200, 170, 110, 0.3), transparent);
+}
+
+.card-header {
+  padding: 0.75rem 1.25rem;
+  background: rgba(9, 10, 15, 0.6);
+  border-bottom: var(--border-hairline);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-title {
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  color: var(--gold-bright);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.card-spec {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.08em;
+}
+
+.card-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+/* ==========================================================================
+   Module 1: Main Chronometer Dial
+   ========================================================================== */
+.chronometer-module .card-body {
+  padding: 1rem;
+}
+
+.chronometer-canvas-container {
+  width: 100%;
+  max-width: 380px;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.8));
+}
+
+#dialCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+.chronometer-digital-readouts {
+  width: 100%;
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  border-radius: 2px;
+  padding: 0.5rem 0.75rem;
+}
+
+.readout-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.readout-block:not(:last-child) {
+  border-right: var(--border-hairline);
+}
+
+.readout-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.1em;
+}
+
+.chronometer-readout-time {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--platinum);
+}
+
+.readout-block.utc-block .chronometer-readout-time {
+  color: #ffffff;
+}
+
+.readout-block.solar-block .chronometer-readout-time {
+  color: var(--gold-bright);
+}
+
+.readout-block.sidereal-block .chronometer-readout-time {
+  color: var(--sidereal-azure);
+}
+
+/* ==========================================================================
+   Module 2: World Solar Observatory Map
+   ========================================================================== */
+.observatory-module .card-body {
+  padding: 0.75rem;
+  position: relative;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dial-well);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#mapCanvas {
+  width: 100%;
+  height: 100%;
+  min-height: 340px;
+  cursor: crosshair;
+}
+
+.map-telemetry-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.45rem 0.85rem;
+  background: rgba(9, 10, 15, 0.9);
+  border-top: var(--border-hairline);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--platinum-muted);
+}
+
+.observatory-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.meridian-select {
+  background: var(--bg-titanium);
+  border: var(--border-hairline);
+  color: var(--gold-bright);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+
+.meridian-select:focus-visible {
+  border-color: var(--gold-meridian);
+}
+
+/* ==========================================================================
+   Module 3: Lunar Complication & Telemetry
+   ========================================================================== */
+.lunar-module .card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.lunar-canvas-wrap {
+  width: 190px;
+  height: 190px;
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.7));
+}
+
+#lunarCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+.lunar-telemetry-container {
+  width: 100%;
+}
+
+.lunar-telemetry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--border-hairline);
+  margin-bottom: 0.75rem;
+}
+
+.lunar-phase-badge {
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  color: var(--gold-bright);
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.lunar-orbit-dir {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--sidereal-azure);
+  letter-spacing: 0.08em;
+}
+
+.lunar-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.lunar-stat {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  padding: 0.5rem 0.65rem;
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.08em;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--platinum);
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+.gold-glow {
+  color: var(--gold-bright) !important;
+  text-shadow: 0 0 8px var(--gold-glow);
+}
+
+.platinum-glow {
+  color: #ffffff !important;
+  text-shadow: 0 0 8px var(--platinum-glow);
+}
+
+/* ==========================================================================
+   Module 4: Celestial Telemetry & Analemma Deck
+   ========================================================================== */
+.telemetry-row-deck {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1.5rem;
+}
+
+@media (max-width: 1080px) {
+  .telemetry-row-deck {
+    grid-template-columns: 1fr;
+  }
+}
+
+.telemetry-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+.telemetry-card {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  border-radius: 2px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.telemetry-card-title {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-bottom: 1px solid rgba(216, 226, 236, 0.08);
+  padding-bottom: 0.35rem;
+}
+
+.telemetry-card-main {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--platinum);
+  padding: 0.25rem 0;
+}
+
+.telemetry-subdata {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--platinum-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.telemetry-subdata strong {
+  color: var(--platinum);
+}
+
+.telemetry-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.field-label {
+  color: var(--platinum-muted);
+}
+
+.field-value {
+  color: var(--platinum);
+  font-weight: 600;
+}
+
+.telemetry-twilight-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.twilight-phase {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+}
+
+.twilight-tag {
+  color: var(--platinum-muted);
+}
+
+.twilight-val {
+  color: var(--platinum);
+  font-weight: 500;
+}
+
+.eot-main-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.eot-value {
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.eot-status {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--gold-meridian);
+}
+
+.eot-explanation {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  color: var(--platinum-muted);
+  line-height: 1.35;
+}
+
+.analemma-card .card-body {
+  padding: 0.75rem;
+}
+
+.analemma-container {
+  width: 100%;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#analemmaCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* ==========================================================================
+   Module 5: Interactive Time Scrubber & Temporal Console
+   ========================================================================== */
+.scrubber-module {
+  background: var(--bg-titanium);
+  border: var(--border-hairline);
+  box-shadow: var(--shadow-bezel);
+  border-radius: 4px;
+  padding: 1rem 1.5rem;
+  position: relative;
+}
+
+.scrubber-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.scrubber-top-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.temporal-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  padding: 0.35rem 0.75rem;
+  border-radius: 2px;
+}
+
+.status-pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.pip-realtime {
+  background: var(--status-green);
+  box-shadow: 0 0 8px var(--status-green);
+}
+
+.pip-simulated {
+  background: var(--gold-bright);
+  box-shadow: 0 0 8px var(--gold-meridian);
+  animation: pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.status-label {
+  letter-spacing: 0.1em;
+  color: var(--platinum);
+}
+
+.speed-readout {
+  color: var(--gold-bright);
+  font-weight: 600;
+}
+
+.preset-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--platinum-muted);
+}
+
+.meridian-date-input {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  color: var(--platinum);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 2px;
+  outline: none;
+}
+
+.meridian-date-input:focus-visible {
+  border-color: var(--gold-meridian);
+}
+
+.meridian-btn {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  color: var(--platinum);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.meridian-btn:hover {
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+  background: rgba(200, 170, 110, 0.08);
+}
+
+.meridian-btn:active {
+  transform: scale(0.98);
+}
+
+.meridian-btn.active {
+  border-color: var(--gold-meridian);
+  background: rgba(200, 170, 110, 0.16);
+  color: var(--gold-bright);
+  box-shadow: inset 0 0 6px rgba(200, 170, 110, 0.2);
+}
+
+.btn-latch {
+  border-color: rgba(200, 170, 110, 0.4);
+}
+
+.btn-latch.active {
+  border-color: var(--status-green);
+  color: #ffffff;
+  background: rgba(56, 239, 125, 0.12);
+}
+
+.latch-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--platinum-muted);
+}
+
+.btn-latch.active .latch-led {
+  background: var(--status-green);
+  box-shadow: 0 0 6px var(--status-green);
+}
+
+.btn-primary {
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+  font-weight: 600;
+  min-width: 84px;
+}
+
+/* Range slider styling */
+.scrubber-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.25rem 0;
+}
+
+.slider-marker {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+  width: 36px;
+  text-align: center;
+}
+
+.meridian-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  border-radius: 3px;
+  outline: none;
+  cursor: ew-resize;
+}
+
+.meridian-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--gold-meridian);
+  border: 1px solid var(--gold-bright);
+  box-shadow: 0 0 8px var(--gold-glow);
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.meridian-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: var(--gold-bright);
+}
+
+.scrubber-bottom-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.playback-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.speed-multiplier-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--platinum-muted);
+}
+
+.speed-btn {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  color: var(--platinum-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.speed-btn:hover {
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+}
+
+.speed-btn.active {
+  background: rgba(200, 170, 110, 0.18);
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Observatory Footer
+   ========================================================================== */
+.observatory-footer {
+  border-top: var(--border-hairline);
+  background: var(--bg-obsidian);
+  padding: 0.85rem 2rem;
+  margin-top: auto;
+}
+
+.footer-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+}
+
+.standards-badge {
+  display: flex;
+  gap: 1rem;
+}
+
+.standards-badge span {
+  border-left: 1px solid rgba(216, 226, 236, 0.15);
+  padding-left: 0.75rem;
+}
+
+/* ==========================================================================
+   Accessibility: Reduced Motion
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

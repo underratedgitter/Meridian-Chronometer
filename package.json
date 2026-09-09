@@ -1,0 +1,21 @@
+{
+  "name": "meridian-chronometer",
+  "version": "1.0.0",
+  "description": "High-precision luxury astronomical chronometer combining Swiss horology with aerospace observatory telemetry.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "astronomical-chronometer",
+    "horology",
+    "solar-terminator",
+    "sidereal-time",
+    "lunar-complication",
+    "equation-of-time"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}

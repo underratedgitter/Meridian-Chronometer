@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Meridian Chronometer — High-precision luxury astronomical horology meets aerospace solar observatory." />
+  <title>Meridian Chronometer // Astronomical Horology & Solar Observatory</title>
+
+  <!-- Typography: Luxury Swiss Serifs & Aerospace Monospace Telemetry -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <!-- Chronometer Stylesheet -->
+  <link rel="stylesheet" href="src/styles/chronometer.css" />
+</head>
+<body>
+
+  <!-- Observatory Header Deck -->
+  <header class="observatory-header">
+    <div class="header-inner">
+      <div class="brand-title-wrap">
+        <h1 class="brand-title">Meridian Chronometer</h1>
+        <span class="brand-sub">Astronomical Horology &bull; JPL/IAU Precision</span>
+      </div>
+
+      <div class="observatory-actions">
+        <div class="observatory-selector-wrap">
+          <label for="observatorySelect">OBSERVATORY:</label>
+          <select id="observatorySelect" class="meridian-select" aria-label="Select Astronomical Observatory">
+            <!-- Populated dynamically by app -->
+          </select>
+        </div>
+
+        <button id="audioToggleBtn" class="audio-toggle-btn" aria-pressed="false" title="Toggle Swiss Mechanical Escapement Acoustic Feedback">
+          <span class="sound-pip"></span> ESCAPEMENT AUDIO
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Master Observatory Instrument Console -->
+  <main class="observatory-main">
+
+    <!-- Row 1: Primary Instruments (Main Dial + World Solar Map + Lunar Complication) -->
+    <div class="observatory-top-row">
+
+      <!-- Instrument 1: Main Chronometer Dial -->
+      <section class="instrument-card chronometer-module" aria-label="Main Chronometer Dial">
+        <div class="card-header">
+          <h2 class="card-title">Chronometer Dial</h2>
+          <span class="card-spec">TRIPLE MERIDIAN // 60 FPS</span>
+        </div>
+        <div class="card-body">
+          <div class="chronometer-canvas-container">
+            <canvas id="dialCanvas" width="380" height="380" aria-label="Astronomical Chronometer 24-hour Face"></canvas>
+          </div>
+          <div class="chronometer-digital-readouts">
+            <div class="readout-block utc-block">
+              <span class="readout-label">CIVIL UTC</span>
+              <span class="chronometer-readout-time tnum" id="utcReadout">--:--:--.--</span>
+            </div>
+            <div class="readout-block solar-block">
+              <span class="readout-label">APPARENT SOLAR</span>
+              <span class="chronometer-readout-time tnum" id="solarReadout">--:--:--</span>
+            </div>
+            <div class="readout-block sidereal-block">
+              <span class="readout-label">SIDEREAL LMST</span>
+              <span class="chronometer-readout-time tnum" id="siderealReadout">--:--:--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Instrument 2: World Solar Observatory Map -->
+      <section class="instrument-card observatory-module" aria-label="World Solar Observatory">
+        <div class="card-header">
+          <h2 class="card-title">World Solar Observatory</h2>
+          <span class="card-spec" id="activeObserverCoords">Royal Observatory Greenwich [51.48° N, 0.00° E]</span>
+        </div>
+        <div class="card-body">
+          <div class="map-container">
+            <canvas id="mapCanvas" width="800" height="400" aria-label="World Map with Real-time Solar Terminator and Twilight Bands"></canvas>
+            <div class="map-telemetry-bar">
+              <span>Drag / Click globe to reposition observer crosshair</span>
+              <span>Zenith: ☀️ Subsolar Point &bull; Nadir: ⨁ Antipodal Point</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Instrument 3: Lunar Complication -->
+      <section class="instrument-card lunar-module" aria-label="Lunar Complication">
+        <div class="card-header">
+          <h2 class="card-title">Lunar Complication</h2>
+          <span class="card-spec">SYNODIC 29.53d</span>
+        </div>
+        <div class="card-body">
+          <div class="lunar-canvas-wrap">
+            <canvas id="lunarCanvas" width="190" height="190" aria-label="3D Spherical Moon Phase Complication"></canvas>
+          </div>
+          <div class="lunar-telemetry-container" id="lunarTelemetryContainer">
+            <!-- Dynamic lunar telemetry -->
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Row 2: Celestial Telemetry & Equation of Time Analemma -->
+    <div class="telemetry-row-deck">
+      <section class="instrument-card" aria-label="Celestial Telemetry">
+        <div class="card-header">
+          <h2 class="card-title">Celestial Telemetry Deck</h2>
+          <span class="card-spec">LOCAL EPHEMERIS & TWILIGHT MATRIX</span>
+        </div>
+        <div class="card-body" id="telemetryContainer">
+          <!-- Populated by TelemetryDisplay -->
+        </div>
+      </section>
+
+      <section class="instrument-card analemma-card" aria-label="Equation of Time Analemma">
+        <div class="card-header">
+          <h2 class="card-title">Solar Analemma</h2>
+          <span class="card-spec">EoT vs DECLINATION</span>
+        </div>
+        <div class="card-body">
+          <div class="analemma-container">
+            <canvas id="analemmaCanvas" width="280" height="180" aria-label="Equation of Time Analemma Figure-Eight Curve"></canvas>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Row 3: Interactive Time Scrubber & Temporal Console -->
+    <section class="scrubber-module" aria-label="Temporal Scrubber Deck">
+      <div id="scrubberContainer">
+        <!-- Populated by TimeScrubber -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Observatory Footer -->
+  <footer class="observatory-footer">
+    <div class="footer-inner">
+      <div>MERIDIAN CHRONOMETER // PRECISION ASTRONOMICAL HOROLOGY & OBSERVED SOLAR TELEMETRY</div>
+      <div class="standards-badge">
+        <span>IAU-1982 GMST</span>
+        <span>MEEUS ALGORITHMS</span>
+        <span>JPL EPHEMERIS DE440</span>
+        <span>ZERO RUNTIME DEPS</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Application Entry Point -->
+  <script type="module" src="src/index.js"></script>
+</body>
+</html>
