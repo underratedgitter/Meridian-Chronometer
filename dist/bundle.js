@@ -366,25 +366,21 @@
   
     const points = [];
     for (let i = 0; i < numPoints; i++) {
-      // Longitude stepping from -180 to +180
-      const lon = -180 + (i / (numPoints - 1)) * 360;
-      const dLonRad = (lon - lambdaSDeg) * DEG2RAD;
+      const alpha = (i / numPoints) * 2.0 * Math.PI;
+      // Spherical trigonometry small/great circle formula
+      const sinPhi = sinPhiS * cosPsi + cosPhiS * sinPsi * Math.cos(alpha);
+      const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
+      const latDeg = Math.asin(clampedSinPhi) * RAD2DEG;
   
-      // At terminator: sin(alt) = sin(phi)*sin(phiS) + cos(phi)*cos(phiS)*cos(dLon)
-      // When alt = 0: tan(phi) = -cos(dLon) / tan(phiS)
-      let latDeg;
-      if (Math.abs(sinPhiS) < 1e-5) {
-        // Equinox edge case: phiS ~ 0
-        // Terminator is longitude lines at lambdaS +/- 90
-        latDeg = 0;
-      } else {
-        const tanPhi = -Math.cos(dLonRad) / Math.tan(phiSRad);
-        latDeg = Math.atan(tanPhi) * RAD2DEG;
-      }
+      const y = Math.sin(alpha) * sinPsi;
+      const x = cosPsi * cosPhiS - sinPhiS * sinPsi * Math.cos(alpha);
+      const dLamDeg = Math.atan2(y, x) * RAD2DEG;
   
-      // Clamp within valid globe latitude [-90, 90]
-      latDeg = Math.max(-90, Math.min(90, latDeg));
-      points.push({ latitudeDeg: latDeg, longitudeDeg: lon });
+      let lonDeg = lambdaSDeg + dLamDeg;
+      while (lonDeg > 180.0) lonDeg -= 360.0;
+      while (lonDeg < -180.0) lonDeg += 360.0;
+  
+      points.push({ latitudeDeg: latDeg, longitudeDeg: lonDeg });
     }
   
     return points;
@@ -821,17 +817,24 @@
       this.drawSiderealHand(ctx, cx, cy, r * 0.42, times.siderealHours);
   
       // 2. Local Solar Time Hand (Meridian Gold)
-      this.drawSolarHand(ctx, cx, cy, r * 0.68, times.solarApparentHours);
+      this.drawSolarHand(ctx, cx, cy, r * 0.60, times.solarApparentHours);
   
-      // 3. UTC Hand (Faceted Platinum Baton)
+      // 3. UTC 24-Hour Hand (Faceted Platinum Baton)
       const utcHours24 =
         times.utcDate.getUTCHours() +
         times.utcDate.getUTCMinutes() / 60.0 +
         times.utcDate.getUTCSeconds() / 3600.0 +
         times.utcDate.getUTCMilliseconds() / 3600000.0;
-      this.drawUtcHand(ctx, cx, cy, r * 0.86, utcHours24);
+      this.drawUtcHand(ctx, cx, cy, r * 0.68, utcHours24);
   
-      // 4. Sweeping Continuous Seconds Hand
+      // 4. 60-Minute Hand (Slender Breguet Platinum Hand)
+      const utcMinutes =
+        times.utcDate.getUTCMinutes() +
+        times.utcDate.getUTCSeconds() / 60.0 +
+        times.utcDate.getUTCMilliseconds() / 60000.0;
+      this.drawMinuteHand(ctx, cx, cy, r * 0.86, utcMinutes);
+  
+      // 5. Sweeping Continuous Seconds Hand
       const utcSeconds = times.utcDate.getUTCSeconds() + times.utcDate.getUTCMilliseconds() / 1000.0;
       this.drawSecondsHand(ctx, cx, cy, r * 0.90, utcSeconds);
   
@@ -1151,6 +1154,45 @@
       ctx.restore();
     }
   
+    drawMinuteHand(ctx, cx, cy, length, minutes) {
+      const dpr = this.dpr;
+      const angle = (minutes / 60.0) * Math.PI * 2 - Math.PI / 2;
+  
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+  
+      ctx.shadowColor = 'rgba(216, 226, 236, 0.35)';
+      ctx.shadowBlur = 4 * dpr;
+  
+      // Slender Breguet faceted minute hand
+      ctx.beginPath();
+      ctx.moveTo(0, 14 * dpr);
+      ctx.lineTo(-1.8 * dpr, 0);
+      ctx.lineTo(-1.0 * dpr, -length * 0.72);
+      ctx.arc(0, -length * 0.78, 3.2 * dpr, Math.PI / 2, -Math.PI / 2, true);
+      ctx.lineTo(0, -length);
+      ctx.lineTo(1.0 * dpr, -length * 0.72);
+      ctx.lineTo(1.8 * dpr, 0);
+      ctx.closePath();
+  
+      const minGrad = ctx.createLinearGradient(-1.8 * dpr, 0, 1.8 * dpr, 0);
+      minGrad.addColorStop(0, '#c2cedb');
+      minGrad.addColorStop(0.5, '#ffffff');
+      minGrad.addColorStop(1, '#9ba9b8');
+  
+      ctx.fillStyle = minGrad;
+      ctx.fill();
+  
+      // Pear counterweight
+      ctx.beginPath();
+      ctx.arc(0, 14 * dpr, 2.5 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+  
+      ctx.restore();
+    }
+  
     drawSecondsHand(ctx, cx, cy, length, seconds) {
       const dpr = this.dpr;
       const angle = (seconds / 60.0) * Math.PI * 2 - Math.PI / 2;
@@ -1445,73 +1487,128 @@
       }
     }
   
+    initShadowMap() {
+      if (typeof document !== 'undefined') {
+        this.shadowW = 360;
+        this.shadowH = 180;
+        this.shadowCanvas = document.createElement('canvas');
+        this.shadowCanvas.width = this.shadowW;
+        this.shadowCanvas.height = this.shadowH;
+        this.shadowCtx = this.shadowCanvas.getContext('2d');
+        this.shadowImageData = this.shadowCtx.createImageData(this.shadowW, this.shadowH);
+      }
+    }
+  
     /**
-     * Draws multi-band twilight gradients and deep night shadow.
-     * Altitudes:
-     *  +6° to 0°: Golden hour
-     *  0° to -6°: Civil twilight
-     *  -6° to -12°: Nautical twilight
-     *  -12° to -18°: Astronomical twilight
-     *  < -18°: Full astronomical night
+     * Draws multi-band twilight gradients and deep night shadow using direct
+     * spherical solar altitude matrix. Eliminates polygon self-intersection artifacts.
      */
     drawTwilightAndNightShadow(ctx, date, w, h) {
       const { subsolarPoint } = getSolarPosition(date);
-      const southPoleDark = subsolarPoint.latitudeDeg > 0;
-      const edgeLat = southPoleDark ? -90 : 90;
+      const phiSRad = subsolarPoint.latitudeDeg * (Math.PI / 180);
+      const lamSRad = subsolarPoint.longitudeDeg * (Math.PI / 180);
+      const sinPhiS = Math.sin(phiSRad);
+      const cosPhiS = Math.cos(phiSRad);
   
-      // Helper to render shadow polygon for an altitude threshold
-      const fillAltitudeBand = (altDeg, fillStyle) => {
-        const pts = getTerminatorPoints(date, 240, altDeg);
-        if (!pts || pts.length < 2) return;
+      if (!this.shadowImageData) {
+        this.initShadowMap();
+      }
   
-        ctx.save();
-        ctx.beginPath();
-        const [firstX, firstY] = this.project(pts[0].longitudeDeg, pts[0].latitudeDeg);
-        ctx.moveTo(firstX, firstY);
+      if (this.shadowImageData) {
+        const buf = this.shadowImageData.data;
+        const sw = this.shadowW;
+        const sh = this.shadowH;
   
-        for (let i = 1; i < pts.length; i++) {
-          const [x, y] = this.project(pts[i].longitudeDeg, pts[i].latitudeDeg);
-          ctx.lineTo(x, y);
+        for (let y = 0; y < sh; y++) {
+          const phi = (90 - (y / sh) * 180) * (Math.PI / 180);
+          const sinPhi = Math.sin(phi);
+          const cosPhi = Math.cos(phi);
+          const term1 = sinPhi * sinPhiS;
+          const term2 = cosPhi * cosPhiS;
+          const rowOffset = y * sw * 4;
+  
+          for (let x = 0; x < sw; x++) {
+            const lam = ((x / sw) * 360 - 180) * (Math.PI / 180);
+            const sinAlt = term1 + term2 * Math.cos(lam - lamSRad);
+            const idx = rowOffset + x * 4;
+  
+            // Atmospheric nocturnal shadow palette:
+            // Deep obsidian/navy with warm golden glow at optical horizon
+            if (sinAlt >= 0.1045) {
+              // Full daylight (altitude >= +6°)
+              buf[idx + 3] = 0;
+            } else if (sinAlt > 0) {
+              // Golden hour (0° to +6°)
+              buf[idx] = 200;
+              buf[idx + 1] = 170;
+              buf[idx + 2] = 110;
+              buf[idx + 3] = Math.round((1 - sinAlt / 0.1045) * 30);
+            } else if (sinAlt >= -0.1045) {
+              // Civil twilight (0° to -6°)
+              buf[idx] = 10;
+              buf[idx + 1] = 16;
+              buf[idx + 2] = 32;
+              buf[idx + 3] = Math.round(50 + (-sinAlt / 0.1045) * 60);
+            } else if (sinAlt >= -0.2079) {
+              // Nautical twilight (-6° to -12°)
+              buf[idx] = 7;
+              buf[idx + 1] = 10;
+              buf[idx + 2] = 22;
+              buf[idx + 3] = Math.round(110 + ((-sinAlt - 0.1045) / 0.1034) * 55);
+            } else if (sinAlt >= -0.3090) {
+              // Astronomical twilight (-12° to -18°)
+              buf[idx] = 5;
+              buf[idx + 1] = 7;
+              buf[idx + 2] = 16;
+              buf[idx + 3] = Math.round(165 + ((-sinAlt - 0.2079) / 0.1011) * 35);
+            } else {
+              // Complete astronomical night (< -18°)
+              buf[idx] = 4;
+              buf[idx + 1] = 5;
+              buf[idx + 2] = 11;
+              buf[idx + 3] = 215; // deep obsidian shadow
+            }
+          }
         }
   
-        // Connect along pole edge to close polygon over dark hemisphere
-        const [edgeR_X, edgeR_Y] = this.project(180, edgeLat);
-        const [edgeL_X, edgeL_Y] = this.project(-180, edgeLat);
-        ctx.lineTo(edgeR_X, edgeR_Y);
-        ctx.lineTo(edgeL_X, edgeL_Y);
-        ctx.closePath();
+        this.shadowCtx.putImageData(this.shadowImageData, 0, 0);
   
-        ctx.fillStyle = fillStyle;
-        ctx.fill();
+        // Render smooth interpolated shadow over the map
+        ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(this.shadowCanvas, 0, 0, w, h);
         ctx.restore();
-      };
+      }
   
-      // 1. Civil twilight band (0° down to -6°)
-      fillAltitudeBand(0, 'rgba(10, 16, 32, 0.35)');
-  
-      // 2. Nautical twilight band (-6° down to -12°)
-      fillAltitudeBand(-6, 'rgba(7, 11, 24, 0.30)');
-  
-      // 3. Astronomical twilight band (-12° down to -18°)
-      fillAltitudeBand(-12, 'rgba(5, 8, 18, 0.30)');
-  
-      // 4. Full night darkness (< -18°)
-      fillAltitudeBand(-18, 'rgba(3, 4, 10, 0.45)');
-  
-      // 5. Crisp glowing line for the optical horizon terminator (0°)
+      // Crisp glowing optical horizon line (alt = 0°)
       const term0 = getTerminatorPoints(date, 360, 0);
       ctx.save();
+      ctx.strokeStyle = 'rgba(200, 170, 110, 0.7)';
+      ctx.lineWidth = 1.4 * this.dpr;
+      ctx.shadowColor = 'rgba(200, 170, 110, 0.6)';
+      ctx.shadowBlur = 8 * this.dpr;
+  
       ctx.beginPath();
-      const [startX, startY] = this.project(term0[0].longitudeDeg, term0[0].latitudeDeg);
-      ctx.moveTo(startX, startY);
-      for (let i = 1; i < term0.length; i++) {
-        const [tx, ty] = this.project(term0[i].longitudeDeg, term0[i].latitudeDeg);
-        ctx.lineTo(tx, ty);
+      let isDrawing = false;
+      for (let i = 0; i < term0.length; i++) {
+        const pt = term0[i];
+        const [tx, ty] = this.project(pt.longitudeDeg, pt.latitudeDeg);
+        if (i > 0) {
+          const prevPt = term0[i - 1];
+          // Break path across antimeridian wrap (-180 / +180) to avoid screen-wide horizontal lines
+          if (Math.abs(pt.longitudeDeg - prevPt.longitudeDeg) > 180) {
+            ctx.stroke();
+            ctx.beginPath();
+            isDrawing = false;
+          }
+        }
+        if (!isDrawing) {
+          ctx.moveTo(tx, ty);
+          isDrawing = true;
+        } else {
+          ctx.lineTo(tx, ty);
+        }
       }
-      ctx.strokeStyle = 'rgba(200, 170, 110, 0.55)';
-      ctx.lineWidth = 1.2 * this.dpr;
-      ctx.shadowColor = 'rgba(200, 170, 110, 0.4)';
-      ctx.shadowBlur = 6 * this.dpr;
       ctx.stroke();
       ctx.restore();
     }
@@ -2208,7 +2305,7 @@
   // ==========================================
   /**
    * Meridian Chronometer — Interactive Time Scrubber
-   * Observatory temporal control deck with timeline scrubbing,
+   * Observatory temporal control deck with 24-hour diurnal timeline scrubbing,
    * speed multiplier switches, bi-directional playback, and astronomical presets.
    */
   
@@ -2222,6 +2319,13 @@
   
       this.render();
       this.attachEventListeners();
+  
+      // Subscribe to time updates so UI stays synchronized
+      this.controller.subscribe(() => {
+        if (!this.isScrubbing) {
+          this.updateUI();
+        }
+      });
     }
   
     render() {
@@ -2256,11 +2360,18 @@
             </button>
           </div>
   
-          <!-- Timeline Slider -->
-          <div class="scrubber-slider-wrap">
-            <span class="slider-marker left-marker">−12h</span>
-            <input type="range" id="timelineSlider" class="meridian-slider" min="-86400" max="86400" value="0" step="60" />
-            <span class="slider-marker right-marker">+12h</span>
+          <!-- 24-Hour Diurnal Timeline Slider -->
+          <div class="scrubber-timeline-container">
+            <div class="timeline-labels-row">
+              <span>00:00 <small>MIDNIGHT</small></span>
+              <span>06:00 <small>DAWN</small></span>
+              <span>12:00 <small>SOLAR NOON</small></span>
+              <span>18:00 <small>DUSK</small></span>
+              <span>24:00 <small>MIDNIGHT</small></span>
+            </div>
+            <div class="scrubber-slider-wrap">
+              <input type="range" id="timelineSlider" class="meridian-slider" min="0" max="86400" value="0" step="1" aria-label="24-Hour Diurnal Timeline Slider" />
+            </div>
           </div>
   
           <!-- Control Strip Bottom: Playback buttons & Multipliers -->
@@ -2321,25 +2432,35 @@
         }
       });
   
-      // Timeline Slider
+      // 24-Hour Timeline Slider (never snaps back!)
       const slider = c.querySelector('#timelineSlider');
-      let scrubAnchorTime = Date.now();
   
-      slider.addEventListener('mousedown', () => {
+      const startScrub = () => {
         this.isScrubbing = true;
-        scrubAnchorTime = this.controller.getTime().getTime();
-      });
+      };
   
-      slider.addEventListener('input', (e) => {
-        const deltaSec = Number(e.target.value);
-        this.controller.setTime(new Date(scrubAnchorTime + deltaSec * 1000));
-      });
+      const doScrub = (e) => {
+        const secOfDay = Number(e.target.value);
+        const cur = this.controller.getTime();
+        const midnightUtc = Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth(), cur.getUTCDate());
+        this.controller.setTime(new Date(midnightUtc + secOfDay * 1000));
+      };
   
-      slider.addEventListener('change', () => {
+      const endScrub = () => {
         this.isScrubbing = false;
-        slider.value = '0';
         this.updateUI();
-      });
+      };
+  
+      slider.addEventListener('pointerdown', startScrub);
+      slider.addEventListener('mousedown', startScrub);
+      slider.addEventListener('touchstart', startScrub, { passive: true });
+  
+      slider.addEventListener('input', doScrub);
+  
+      slider.addEventListener('pointerup', endScrub);
+      slider.addEventListener('mouseup', endScrub);
+      slider.addEventListener('touchend', endScrub);
+      slider.addEventListener('change', endScrub);
   
       // Play / Pause
       const btnPlayPause = c.querySelector('#btnPlayPause');
@@ -2449,6 +2570,14 @@
         const pad = (n) => String(n).padStart(2, '0');
         const isoLocal = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
         dateInput.value = isoLocal;
+      }
+  
+      // Update timeline slider value to reflect current seconds of day
+      const slider = c.querySelector('#timelineSlider');
+      if (slider && !this.isScrubbing) {
+        const d = this.controller.getTime();
+        const secOfDay = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
+        slider.value = secOfDay;
       }
     }
   }

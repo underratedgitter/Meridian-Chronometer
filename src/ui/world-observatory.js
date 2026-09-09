@@ -237,73 +237,128 @@ export class WorldObservatory {
     }
   }
 
+  initShadowMap() {
+    if (typeof document !== 'undefined') {
+      this.shadowW = 360;
+      this.shadowH = 180;
+      this.shadowCanvas = document.createElement('canvas');
+      this.shadowCanvas.width = this.shadowW;
+      this.shadowCanvas.height = this.shadowH;
+      this.shadowCtx = this.shadowCanvas.getContext('2d');
+      this.shadowImageData = this.shadowCtx.createImageData(this.shadowW, this.shadowH);
+    }
+  }
+
   /**
-   * Draws multi-band twilight gradients and deep night shadow.
-   * Altitudes:
-   *  +6° to 0°: Golden hour
-   *  0° to -6°: Civil twilight
-   *  -6° to -12°: Nautical twilight
-   *  -12° to -18°: Astronomical twilight
-   *  < -18°: Full astronomical night
+   * Draws multi-band twilight gradients and deep night shadow using direct
+   * spherical solar altitude matrix. Eliminates polygon self-intersection artifacts.
    */
   drawTwilightAndNightShadow(ctx, date, w, h) {
     const { subsolarPoint } = getSolarPosition(date);
-    const southPoleDark = subsolarPoint.latitudeDeg > 0;
-    const edgeLat = southPoleDark ? -90 : 90;
+    const phiSRad = subsolarPoint.latitudeDeg * (Math.PI / 180);
+    const lamSRad = subsolarPoint.longitudeDeg * (Math.PI / 180);
+    const sinPhiS = Math.sin(phiSRad);
+    const cosPhiS = Math.cos(phiSRad);
 
-    // Helper to render shadow polygon for an altitude threshold
-    const fillAltitudeBand = (altDeg, fillStyle) => {
-      const pts = getTerminatorPoints(date, 240, altDeg);
-      if (!pts || pts.length < 2) return;
+    if (!this.shadowImageData) {
+      this.initShadowMap();
+    }
 
-      ctx.save();
-      ctx.beginPath();
-      const [firstX, firstY] = this.project(pts[0].longitudeDeg, pts[0].latitudeDeg);
-      ctx.moveTo(firstX, firstY);
+    if (this.shadowImageData) {
+      const buf = this.shadowImageData.data;
+      const sw = this.shadowW;
+      const sh = this.shadowH;
 
-      for (let i = 1; i < pts.length; i++) {
-        const [x, y] = this.project(pts[i].longitudeDeg, pts[i].latitudeDeg);
-        ctx.lineTo(x, y);
+      for (let y = 0; y < sh; y++) {
+        const phi = (90 - (y / sh) * 180) * (Math.PI / 180);
+        const sinPhi = Math.sin(phi);
+        const cosPhi = Math.cos(phi);
+        const term1 = sinPhi * sinPhiS;
+        const term2 = cosPhi * cosPhiS;
+        const rowOffset = y * sw * 4;
+
+        for (let x = 0; x < sw; x++) {
+          const lam = ((x / sw) * 360 - 180) * (Math.PI / 180);
+          const sinAlt = term1 + term2 * Math.cos(lam - lamSRad);
+          const idx = rowOffset + x * 4;
+
+          // Atmospheric nocturnal shadow palette:
+          // Deep obsidian/navy with warm golden glow at optical horizon
+          if (sinAlt >= 0.1045) {
+            // Full daylight (altitude >= +6°)
+            buf[idx + 3] = 0;
+          } else if (sinAlt > 0) {
+            // Golden hour (0° to +6°)
+            buf[idx] = 200;
+            buf[idx + 1] = 170;
+            buf[idx + 2] = 110;
+            buf[idx + 3] = Math.round((1 - sinAlt / 0.1045) * 30);
+          } else if (sinAlt >= -0.1045) {
+            // Civil twilight (0° to -6°)
+            buf[idx] = 10;
+            buf[idx + 1] = 16;
+            buf[idx + 2] = 32;
+            buf[idx + 3] = Math.round(50 + (-sinAlt / 0.1045) * 60);
+          } else if (sinAlt >= -0.2079) {
+            // Nautical twilight (-6° to -12°)
+            buf[idx] = 7;
+            buf[idx + 1] = 10;
+            buf[idx + 2] = 22;
+            buf[idx + 3] = Math.round(110 + ((-sinAlt - 0.1045) / 0.1034) * 55);
+          } else if (sinAlt >= -0.3090) {
+            // Astronomical twilight (-12° to -18°)
+            buf[idx] = 5;
+            buf[idx + 1] = 7;
+            buf[idx + 2] = 16;
+            buf[idx + 3] = Math.round(165 + ((-sinAlt - 0.2079) / 0.1011) * 35);
+          } else {
+            // Complete astronomical night (< -18°)
+            buf[idx] = 4;
+            buf[idx + 1] = 5;
+            buf[idx + 2] = 11;
+            buf[idx + 3] = 215; // deep obsidian shadow
+          }
+        }
       }
 
-      // Connect along pole edge to close polygon over dark hemisphere
-      const [edgeR_X, edgeR_Y] = this.project(180, edgeLat);
-      const [edgeL_X, edgeL_Y] = this.project(-180, edgeLat);
-      ctx.lineTo(edgeR_X, edgeR_Y);
-      ctx.lineTo(edgeL_X, edgeL_Y);
-      ctx.closePath();
+      this.shadowCtx.putImageData(this.shadowImageData, 0, 0);
 
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
+      // Render smooth interpolated shadow over the map
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.shadowCanvas, 0, 0, w, h);
       ctx.restore();
-    };
+    }
 
-    // 1. Civil twilight band (0° down to -6°)
-    fillAltitudeBand(0, 'rgba(10, 16, 32, 0.35)');
-
-    // 2. Nautical twilight band (-6° down to -12°)
-    fillAltitudeBand(-6, 'rgba(7, 11, 24, 0.30)');
-
-    // 3. Astronomical twilight band (-12° down to -18°)
-    fillAltitudeBand(-12, 'rgba(5, 8, 18, 0.30)');
-
-    // 4. Full night darkness (< -18°)
-    fillAltitudeBand(-18, 'rgba(3, 4, 10, 0.45)');
-
-    // 5. Crisp glowing line for the optical horizon terminator (0°)
+    // Crisp glowing optical horizon line (alt = 0°)
     const term0 = getTerminatorPoints(date, 360, 0);
     ctx.save();
+    ctx.strokeStyle = 'rgba(200, 170, 110, 0.7)';
+    ctx.lineWidth = 1.4 * this.dpr;
+    ctx.shadowColor = 'rgba(200, 170, 110, 0.6)';
+    ctx.shadowBlur = 8 * this.dpr;
+
     ctx.beginPath();
-    const [startX, startY] = this.project(term0[0].longitudeDeg, term0[0].latitudeDeg);
-    ctx.moveTo(startX, startY);
-    for (let i = 1; i < term0.length; i++) {
-      const [tx, ty] = this.project(term0[i].longitudeDeg, term0[i].latitudeDeg);
-      ctx.lineTo(tx, ty);
+    let isDrawing = false;
+    for (let i = 0; i < term0.length; i++) {
+      const pt = term0[i];
+      const [tx, ty] = this.project(pt.longitudeDeg, pt.latitudeDeg);
+      if (i > 0) {
+        const prevPt = term0[i - 1];
+        // Break path across antimeridian wrap (-180 / +180) to avoid screen-wide horizontal lines
+        if (Math.abs(pt.longitudeDeg - prevPt.longitudeDeg) > 180) {
+          ctx.stroke();
+          ctx.beginPath();
+          isDrawing = false;
+        }
+      }
+      if (!isDrawing) {
+        ctx.moveTo(tx, ty);
+        isDrawing = true;
+      } else {
+        ctx.lineTo(tx, ty);
+      }
     }
-    ctx.strokeStyle = 'rgba(200, 170, 110, 0.55)';
-    ctx.lineWidth = 1.2 * this.dpr;
-    ctx.shadowColor = 'rgba(200, 170, 110, 0.4)';
-    ctx.shadowBlur = 6 * this.dpr;
     ctx.stroke();
     ctx.restore();
   }

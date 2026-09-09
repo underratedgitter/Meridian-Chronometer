@@ -780,6 +780,26 @@ body {
 }
 
 /* Range slider styling */
+.scrubber-timeline-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.timeline-labels-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+  padding: 0 4px;
+}
+
+.timeline-labels-row small {
+  color: var(--gold-meridian);
+  margin-left: 2px;
+}
+
 .scrubber-slider-wrap {
   display: flex;
   align-items: center;

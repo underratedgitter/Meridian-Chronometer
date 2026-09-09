@@ -1,6 +1,6 @@
 /**
  * Meridian Chronometer — Interactive Time Scrubber
- * Observatory temporal control deck with timeline scrubbing,
+ * Observatory temporal control deck with 24-hour diurnal timeline scrubbing,
  * speed multiplier switches, bi-directional playback, and astronomical presets.
  */
 
@@ -14,6 +14,13 @@ export class TimeScrubber {
 
     this.render();
     this.attachEventListeners();
+
+    // Subscribe to time updates so UI stays synchronized
+    this.controller.subscribe(() => {
+      if (!this.isScrubbing) {
+        this.updateUI();
+      }
+    });
   }
 
   render() {
@@ -48,11 +55,18 @@ export class TimeScrubber {
           </button>
         </div>
 
-        <!-- Timeline Slider -->
-        <div class="scrubber-slider-wrap">
-          <span class="slider-marker left-marker">−12h</span>
-          <input type="range" id="timelineSlider" class="meridian-slider" min="-86400" max="86400" value="0" step="60" />
-          <span class="slider-marker right-marker">+12h</span>
+        <!-- 24-Hour Diurnal Timeline Slider -->
+        <div class="scrubber-timeline-container">
+          <div class="timeline-labels-row">
+            <span>00:00 <small>MIDNIGHT</small></span>
+            <span>06:00 <small>DAWN</small></span>
+            <span>12:00 <small>SOLAR NOON</small></span>
+            <span>18:00 <small>DUSK</small></span>
+            <span>24:00 <small>MIDNIGHT</small></span>
+          </div>
+          <div class="scrubber-slider-wrap">
+            <input type="range" id="timelineSlider" class="meridian-slider" min="0" max="86400" value="0" step="1" aria-label="24-Hour Diurnal Timeline Slider" />
+          </div>
         </div>
 
         <!-- Control Strip Bottom: Playback buttons & Multipliers -->
@@ -113,25 +127,35 @@ export class TimeScrubber {
       }
     });
 
-    // Timeline Slider
+    // 24-Hour Timeline Slider (never snaps back!)
     const slider = c.querySelector('#timelineSlider');
-    let scrubAnchorTime = Date.now();
 
-    slider.addEventListener('mousedown', () => {
+    const startScrub = () => {
       this.isScrubbing = true;
-      scrubAnchorTime = this.controller.getTime().getTime();
-    });
+    };
 
-    slider.addEventListener('input', (e) => {
-      const deltaSec = Number(e.target.value);
-      this.controller.setTime(new Date(scrubAnchorTime + deltaSec * 1000));
-    });
+    const doScrub = (e) => {
+      const secOfDay = Number(e.target.value);
+      const cur = this.controller.getTime();
+      const midnightUtc = Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth(), cur.getUTCDate());
+      this.controller.setTime(new Date(midnightUtc + secOfDay * 1000));
+    };
 
-    slider.addEventListener('change', () => {
+    const endScrub = () => {
       this.isScrubbing = false;
-      slider.value = '0';
       this.updateUI();
-    });
+    };
+
+    slider.addEventListener('pointerdown', startScrub);
+    slider.addEventListener('mousedown', startScrub);
+    slider.addEventListener('touchstart', startScrub, { passive: true });
+
+    slider.addEventListener('input', doScrub);
+
+    slider.addEventListener('pointerup', endScrub);
+    slider.addEventListener('mouseup', endScrub);
+    slider.addEventListener('touchend', endScrub);
+    slider.addEventListener('change', endScrub);
 
     // Play / Pause
     const btnPlayPause = c.querySelector('#btnPlayPause');
@@ -241,6 +265,14 @@ export class TimeScrubber {
       const pad = (n) => String(n).padStart(2, '0');
       const isoLocal = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
       dateInput.value = isoLocal;
+    }
+
+    // Update timeline slider value to reflect current seconds of day
+    const slider = c.querySelector('#timelineSlider');
+    if (slider && !this.isScrubbing) {
+      const d = this.controller.getTime();
+      const secOfDay = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
+      slider.value = secOfDay;
     }
   }
 }

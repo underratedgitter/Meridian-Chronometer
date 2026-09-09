@@ -71,17 +71,24 @@ export class ChronometerDial {
     this.drawSiderealHand(ctx, cx, cy, r * 0.42, times.siderealHours);
 
     // 2. Local Solar Time Hand (Meridian Gold)
-    this.drawSolarHand(ctx, cx, cy, r * 0.68, times.solarApparentHours);
+    this.drawSolarHand(ctx, cx, cy, r * 0.60, times.solarApparentHours);
 
-    // 3. UTC Hand (Faceted Platinum Baton)
+    // 3. UTC 24-Hour Hand (Faceted Platinum Baton)
     const utcHours24 =
       times.utcDate.getUTCHours() +
       times.utcDate.getUTCMinutes() / 60.0 +
       times.utcDate.getUTCSeconds() / 3600.0 +
       times.utcDate.getUTCMilliseconds() / 3600000.0;
-    this.drawUtcHand(ctx, cx, cy, r * 0.86, utcHours24);
+    this.drawUtcHand(ctx, cx, cy, r * 0.68, utcHours24);
 
-    // 4. Sweeping Continuous Seconds Hand
+    // 4. 60-Minute Hand (Slender Breguet Platinum Hand)
+    const utcMinutes =
+      times.utcDate.getUTCMinutes() +
+      times.utcDate.getUTCSeconds() / 60.0 +
+      times.utcDate.getUTCMilliseconds() / 60000.0;
+    this.drawMinuteHand(ctx, cx, cy, r * 0.86, utcMinutes);
+
+    // 5. Sweeping Continuous Seconds Hand
     const utcSeconds = times.utcDate.getUTCSeconds() + times.utcDate.getUTCMilliseconds() / 1000.0;
     this.drawSecondsHand(ctx, cx, cy, r * 0.90, utcSeconds);
 
@@ -396,6 +403,45 @@ export class ChronometerDial {
     platGrad.addColorStop(1, '#8f9dae');
 
     ctx.fillStyle = platGrad;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  drawMinuteHand(ctx, cx, cy, length, minutes) {
+    const dpr = this.dpr;
+    const angle = (minutes / 60.0) * Math.PI * 2 - Math.PI / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    ctx.shadowColor = 'rgba(216, 226, 236, 0.35)';
+    ctx.shadowBlur = 4 * dpr;
+
+    // Slender Breguet faceted minute hand
+    ctx.beginPath();
+    ctx.moveTo(0, 14 * dpr);
+    ctx.lineTo(-1.8 * dpr, 0);
+    ctx.lineTo(-1.0 * dpr, -length * 0.72);
+    ctx.arc(0, -length * 0.78, 3.2 * dpr, Math.PI / 2, -Math.PI / 2, true);
+    ctx.lineTo(0, -length);
+    ctx.lineTo(1.0 * dpr, -length * 0.72);
+    ctx.lineTo(1.8 * dpr, 0);
+    ctx.closePath();
+
+    const minGrad = ctx.createLinearGradient(-1.8 * dpr, 0, 1.8 * dpr, 0);
+    minGrad.addColorStop(0, '#c2cedb');
+    minGrad.addColorStop(0.5, '#ffffff');
+    minGrad.addColorStop(1, '#9ba9b8');
+
+    ctx.fillStyle = minGrad;
+    ctx.fill();
+
+    // Pear counterweight
+    ctx.beginPath();
+    ctx.arc(0, 14 * dpr, 2.5 * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
 
     ctx.restore();

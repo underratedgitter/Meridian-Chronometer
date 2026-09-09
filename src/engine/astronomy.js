@@ -356,25 +356,21 @@ export function getTerminatorPoints(date, numPoints = 360, altitudeDeg = 0) {
 
   const points = [];
   for (let i = 0; i < numPoints; i++) {
-    // Longitude stepping from -180 to +180
-    const lon = -180 + (i / (numPoints - 1)) * 360;
-    const dLonRad = (lon - lambdaSDeg) * DEG2RAD;
+    const alpha = (i / numPoints) * 2.0 * Math.PI;
+    // Spherical trigonometry small/great circle formula
+    const sinPhi = sinPhiS * cosPsi + cosPhiS * sinPsi * Math.cos(alpha);
+    const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
+    const latDeg = Math.asin(clampedSinPhi) * RAD2DEG;
 
-    // At terminator: sin(alt) = sin(phi)*sin(phiS) + cos(phi)*cos(phiS)*cos(dLon)
-    // When alt = 0: tan(phi) = -cos(dLon) / tan(phiS)
-    let latDeg;
-    if (Math.abs(sinPhiS) < 1e-5) {
-      // Equinox edge case: phiS ~ 0
-      // Terminator is longitude lines at lambdaS +/- 90
-      latDeg = 0;
-    } else {
-      const tanPhi = -Math.cos(dLonRad) / Math.tan(phiSRad);
-      latDeg = Math.atan(tanPhi) * RAD2DEG;
-    }
+    const y = Math.sin(alpha) * sinPsi;
+    const x = cosPsi * cosPhiS - sinPhiS * sinPsi * Math.cos(alpha);
+    const dLamDeg = Math.atan2(y, x) * RAD2DEG;
 
-    // Clamp within valid globe latitude [-90, 90]
-    latDeg = Math.max(-90, Math.min(90, latDeg));
-    points.push({ latitudeDeg: latDeg, longitudeDeg: lon });
+    let lonDeg = lambdaSDeg + dLamDeg;
+    while (lonDeg > 180.0) lonDeg -= 360.0;
+    while (lonDeg < -180.0) lonDeg += 360.0;
+
+    points.push({ latitudeDeg: latDeg, longitudeDeg: lonDeg });
   }
 
   return points;
