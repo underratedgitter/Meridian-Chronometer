@@ -16,6 +16,7 @@ const filesInOrder = [
   'src/ui/lunar-complication.js',
   'src/ui/telemetry-display.js',
   'src/ui/time-scrubber.js',
+  'src/ui/sky-dome.js',
   'src/index.js'
 ];
 

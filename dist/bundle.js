@@ -413,6 +413,227 @@
     return polygon;
   }
   
+  /**
+   * Converts Equatorial Coordinates (RA in hours, Dec in degrees) to
+   * Horizontal Coordinates (Altitude and Azimuth in degrees).
+   * Azimuth convention: 0° North, 90° East, 180° South, 270° West.
+   */
+  function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
+    // Hour Angle in radians [-PI, PI]
+    let hDeg = (lmstHours - raHours) * 15.0;
+    while (hDeg > 180.0) hDeg -= 360.0;
+    while (hDeg < -180.0) hDeg += 360.0;
+    const hRad = hDeg * DEG2RAD;
+  
+    const phiRad = latDeg * DEG2RAD;
+    const deltaRad = decDeg * DEG2RAD;
+  
+    // Altitude
+    const sinAlt =
+      Math.sin(phiRad) * Math.sin(deltaRad) +
+      Math.cos(phiRad) * Math.cos(deltaRad) * Math.cos(hRad);
+    const clampedSinAlt = Math.max(-1.0, Math.min(1.0, sinAlt));
+    const altRad = Math.asin(clampedSinAlt);
+    const altDeg = altRad * RAD2DEG;
+    const cosAlt = Math.cos(altRad);
+  
+    // Azimuth
+    let azDeg = 0;
+    if (cosAlt > 1e-6) {
+      const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
+      const cosAz =
+        (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
+        (Math.cos(phiRad) * cosAlt);
+      azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
+      azDeg = (azDeg + 360.0) % 360.0;
+    }
+  
+    return {
+      altitudeDeg: altDeg,
+      azimuthDeg: azDeg,
+      isVisible: altDeg > 0
+    };
+  }
+  
+  /**
+   * Projects a 3D spherical coordinate (lonDeg, latDeg) onto a 2D Orthographic Globe.
+   * Returns { x, y, visible, cosC }.
+   * x is right (+), y is down (+) to match canvas space.
+   */
+  function projectOrthographic(lonDeg, latDeg, centerLonDeg, centerLatDeg, radius) {
+    let dLonDeg = lonDeg - centerLonDeg;
+    while (dLonDeg > 180.0) dLonDeg -= 360.0;
+    while (dLonDeg < -180.0) dLonDeg += 360.0;
+  
+    const dLam = dLonDeg * DEG2RAD;
+    const phi = latDeg * DEG2RAD;
+    const phi0 = centerLatDeg * DEG2RAD;
+  
+    const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(dLam);
+    const visible = cosC >= 0;
+  
+    // Screen coordinates relative to globe center:
+    const x = radius * Math.cos(phi) * Math.sin(dLam);
+    const y = -radius * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
+  
+    return { x, y, visible, cosC };
+  }
+  
+  /**
+   * Inverse raycasting: maps a 2D screen coordinate (x, y) relative to globe center
+   * back to 3D geographic coordinates (lon, lat).
+   * Returns { hit: boolean, lon: number|null, lat: number|null }.
+   */
+  function unprojectOrthographic(x, y, centerLonDeg, centerLatDeg, radius) {
+    const rho = Math.sqrt(x * x + y * y);
+    if (rho > radius) {
+      return { hit: false, lon: null, lat: null };
+    }
+    if (rho < 1e-6) {
+      return { hit: true, lon: centerLonDeg, lat: centerLatDeg };
+    }
+  
+    const c = Math.asin(rho / radius);
+    const sinC = Math.sin(c);
+    const cosC = Math.cos(c);
+    const phi0 = centerLatDeg * DEG2RAD;
+    const sinPhi0 = Math.sin(phi0);
+    const cosPhi0 = Math.cos(phi0);
+  
+    // In screen space y is down (+), so Cartesian Y on sphere is -y
+    const py = -y;
+  
+    const sinPhi = cosC * sinPhi0 + (py * sinC * cosPhi0) / rho;
+    const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
+    const lat = Math.asin(clampedSinPhi) * RAD2DEG;
+  
+    const numY = x * sinC;
+    const denX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
+    const dLam = Math.atan2(numY, denX) * RAD2DEG;
+  
+    let lon = centerLonDeg + dLam;
+    while (lon > 180.0) lon -= 360.0;
+    while (lon < -180.0) lon += 360.0;
+  
+    return { hit: true, lon, lat };
+  }
+  
+  /**
+   * Keplerian planetary ephemeris (Venus, Mars, Jupiter).
+   * Computes instantaneous geocentric Right Ascension and Declination.
+   */
+  function getPlanetaryPositions(date) {
+    const jd = getJulianDate(date);
+    const T = getJulianCenturies(jd);
+  
+    // Mean obliquity of ecliptic
+    const eps = (23.439291 - 0.0130042 * T) * DEG2RAD;
+  
+    // Heliocentric coordinates helper
+    function getHeliocentric(a, e0, edot, I0, Idot, L0, Ldot, varpi0, varpidot, Omega0, Omegadot) {
+      const e = e0 + edot * T;
+      const I = (I0 + Idot * T) * DEG2RAD;
+      const L = normalizeDegrees(L0 + Ldot * T);
+      const varpi = normalizeDegrees(varpi0 + varpidot * T);
+      const Omega = normalizeDegrees(Omega0 + Omegadot * T) * DEG2RAD;
+  
+      // Mean anomaly
+      const M = normalizeDegrees(L - varpi) * DEG2RAD;
+  
+      // Equation of center (2-term approximation)
+      const nu = M + (2 * e - 0.25 * e ** 3) * Math.sin(M) + 1.25 * e ** 2 * Math.sin(2 * M);
+      const r = (a * (1 - e * e)) / (1 + e * Math.cos(nu));
+  
+      const u = nu + (varpi * DEG2RAD - Omega);
+      const xNode = r * Math.cos(u);
+      const yNode = r * Math.sin(u);
+  
+      // Heliocentric coordinates
+      const X = xNode * Math.cos(Omega) - yNode * Math.sin(Omega) * Math.cos(I);
+      const Y = xNode * Math.sin(Omega) + yNode * Math.cos(Omega) * Math.cos(I);
+      const Z = yNode * Math.sin(I);
+  
+      return { X, Y, Z };
+    }
+  
+    // Earth
+    const earth = getHeliocentric(
+      1.00000261, 0.01671123, -0.00004392,
+      0.00005, -0.013, 100.464571, 36000.769828,
+      102.937681, 0.317952, 0.0, 0.0
+    );
+  
+    // Venus
+    const venus = getHeliocentric(
+      0.72333566, 0.00677672, -0.00004107,
+      3.394676, -0.000789, 181.979099, 58517.815387,
+      131.602467, 0.002683, 76.679843, -0.277694
+    );
+  
+    // Mars
+    const mars = getHeliocentric(
+      1.52371034, 0.09339410, 0.00007882,
+      1.849691, -0.008131, -4.553432, 19140.302685,
+      -23.943629, 0.444411, 49.559538, -0.292573
+    );
+  
+    // Jupiter
+    const jupiter = getHeliocentric(
+      5.202887, 0.04838624, -0.00013253,
+      1.304396, -0.001837, 34.396441, 3034.746128,
+      14.728479, 0.212527, 100.473909, 0.204691
+    );
+  
+    function toEquatorial(planet, name, color, symbol, mag) {
+      // Geocentric coordinates
+      const Xg = planet.X - earth.X;
+      const Yg = planet.Y - earth.Y;
+      const Zg = planet.Z - earth.Z;
+  
+      // Rotate by ecliptic obliquity to equatorial coordinates
+      const Xeq = Xg;
+      const Yeq = Yg * Math.cos(eps) - Zg * Math.sin(eps);
+      const Zeq = Yg * Math.sin(eps) + Zg * Math.cos(eps);
+  
+      let raDeg = Math.atan2(Yeq, Xeq) * RAD2DEG;
+      raDeg = normalizeDegrees(raDeg);
+      const dist = Math.sqrt(Xeq * Xeq + Yeq * Yeq + Zeq * Zeq);
+      const decDeg = Math.asin(Math.max(-1, Math.min(1, Zeq / dist))) * RAD2DEG;
+  
+      return {
+        name,
+        symbol,
+        color,
+        magnitude: mag,
+        raHours: raDeg / 15.0,
+        decDeg,
+        distAU: dist
+      };
+    }
+  
+    return {
+      venus: toEquatorial(venus, 'Venus', '#ffd480', '♀', -4.2),
+      mars: toEquatorial(mars, 'Mars', '#ff6b4a', '♂', -1.5),
+      jupiter: toEquatorial(jupiter, 'Jupiter', '#e0cda9', '♃', -2.4)
+    };
+  }
+  
+  /**
+   * Standard Catalog of Bright Primary Navigation & Alignment Stars (J2000.0)
+   */
+  const BRIGHT_STARS = [
+    { name: 'Polaris', bayer: 'α UMi', const: 'Ursa Minor', raHours: 2.530, decDeg: 89.264, mag: 1.98, color: '#fbfcfd' },
+    { name: 'Sirius', bayer: 'α CMa', const: 'Canis Major', raHours: 6.752, decDeg: -16.716, mag: -1.46, color: '#a6c8ff' },
+    { name: 'Vega', bayer: 'α Lyr', const: 'Lyra', raHours: 18.616, decDeg: 38.784, mag: 0.03, color: '#cadcff' },
+    { name: 'Betelgeuse', bayer: 'α Ori', const: 'Orion', raHours: 5.919, decDeg: 7.407, mag: 0.50, color: '#ff9468' },
+    { name: 'Rigel', bayer: 'β Ori', const: 'Orion', raHours: 5.242, decDeg: -8.201, mag: 0.18, color: '#bad2ff' },
+    { name: 'Arcturus', bayer: 'α Boo', const: 'Boötes', raHours: 14.261, decDeg: 19.182, mag: -0.05, color: '#ffcd85' },
+    { name: 'Capella', bayer: 'α Aur', const: 'Auriga', raHours: 5.278, decDeg: 45.998, mag: 0.08, color: '#fff29e' },
+    { name: 'Aldebaran', bayer: 'α Tau', const: 'Taurus', raHours: 4.599, decDeg: 16.509, mag: 0.85, color: '#ffaa66' },
+    { name: 'Antares', bayer: 'α Sco', const: 'Scorpius', raHours: 16.490, decDeg: -26.432, mag: 1.06, color: '#ff7755' },
+    { name: 'Spica', bayer: 'α Vir', const: 'Virgo', raHours: 13.420, decDeg: -11.161, mag: 0.98, color: '#b5d0ff' }
+  ];
+  
 
   // ==========================================
   // Module: src/engine/world-geometry.js
@@ -443,6 +664,41 @@
     { label: 'Autumnal Equinox 2024', iso: '2024-09-22T12:44:00Z' },
     { label: 'Great American Eclipse 2024', iso: '2024-04-08T18:18:00Z' },
     { label: 'Apollo 11 Lunar Landing 1969', iso: '1969-07-20T20:17:40Z' }
+  ];
+  
+  const MAJOR_CITIES = [
+    { name: 'Tokyo', lat: 35.68, lon: 139.76, weight: 1.0 },
+    { name: 'Seoul', lat: 37.56, lon: 126.97, weight: 0.9 },
+    { name: 'Shanghai', lat: 31.23, lon: 121.47, weight: 1.0 },
+    { name: 'Beijing', lat: 39.90, lon: 116.40, weight: 0.9 },
+    { name: 'Guangzhou', lat: 23.13, lon: 113.26, weight: 0.8 },
+    { name: 'Hong Kong', lat: 22.31, lon: 114.16, weight: 0.8 },
+    { name: 'Singapore', lat: 1.35, lon: 103.82, weight: 0.7 },
+    { name: 'Bangkok', lat: 13.75, lon: 100.50, weight: 0.7 },
+    { name: 'Jakarta', lat: -6.20, lon: 106.84, weight: 0.7 },
+    { name: 'Delhi', lat: 28.61, lon: 77.20, weight: 0.9 },
+    { name: 'Mumbai', lat: 19.07, lon: 72.87, weight: 0.9 },
+    { name: 'Bangalore', lat: 12.97, lon: 77.59, weight: 0.7 },
+    { name: 'Dubai', lat: 25.20, lon: 55.27, weight: 0.8 },
+    { name: 'Cairo', lat: 30.04, lon: 31.23, weight: 0.8 },
+    { name: 'Johannesburg', lat: -26.20, lon: 28.04, weight: 0.7 },
+    { name: 'London', lat: 51.50, lon: -0.12, weight: 1.0 },
+    { name: 'Paris', lat: 48.85, lon: 2.35, weight: 0.9 },
+    { name: 'Berlin', lat: 52.52, lon: 13.40, weight: 0.8 },
+    { name: 'Madrid', lat: 40.41, lon: -3.70, weight: 0.8 },
+    { name: 'Rome', lat: 41.90, lon: 12.49, weight: 0.7 },
+    { name: 'Moscow', lat: 55.75, lon: 37.61, weight: 0.8 },
+    { name: 'Istanbul', lat: 41.00, lon: 28.97, weight: 0.8 },
+    { name: 'New York', lat: 40.71, lon: -74.00, weight: 1.0 },
+    { name: 'Chicago', lat: 41.88, lon: -87.63, weight: 0.8 },
+    { name: 'Los Angeles', lat: 34.05, lon: -118.24, weight: 0.9 },
+    { name: 'San Francisco', lat: 37.77, lon: -122.42, weight: 0.8 },
+    { name: 'Toronto', lat: 43.65, lon: -79.38, weight: 0.7 },
+    { name: 'Mexico City', lat: 19.43, lon: -99.13, weight: 0.8 },
+    { name: 'São Paulo', lat: -23.55, lon: -46.63, weight: 0.9 },
+    { name: 'Buenos Aires', lat: -34.60, lon: -58.38, weight: 0.8 },
+    { name: 'Sydney', lat: -33.86, lon: 151.20, weight: 0.8 },
+    { name: 'Melbourne', lat: -37.81, lon: 144.96, weight: 0.7 }
   ];
   
   // Simplified high-fidelity closed polygonal contours for the world's main landmasses:
@@ -1250,10 +1506,12 @@
   // ==========================================
   /**
    * Meridian Chronometer — World Solar Observatory
-   * Real-time equirectangular Earth observatory map.
-   * Projects real-time solar terminator, multi-band twilight gradients,
-   * subsolar zenith reticle, and interactive observer coordinates.
+   * Multi-projection Earth observatory supporting both:
+   * 1. 2D Equirectangular Projection
+   * 2. 3D Orthographic Spherical Globe with atmospheric limb glow,
+   *    interactive 3D rotation, and nighttime city lights.
    */
+  
   
   
   
@@ -1282,9 +1540,19 @@
         name: 'Royal Observatory Greenwich'
       };
   
+      // Projection Mode: 'equirectangular' or 'orthographic'
+      this.projectionMode = 'equirectangular';
+  
+      // 3D Globe camera orientation (center lon/lat)
+      this.globeCenter = { lon: 0.0, lat: 20.0 };
+  
       this.hoverCoord = null;
       this.onObserverChange = null;
+      this.onOpenSkyDome = null;
       this.isDragging = false;
+      this.dragStartPos = null;
+      this.dragStartGlobe = null;
+      this.totalDragDist = 0;
       this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
   
       this.setupInteractivity();
@@ -1299,6 +1567,19 @@
   
       this.canvas.width = Math.round(this.width * this.dpr);
       this.canvas.height = Math.round(this.height * this.dpr);
+  
+      // Invalidate cached shadow map so it recreates if needed
+      this.shadowCanvas = null;
+      this.shadowImageData = null;
+    }
+  
+    setProjectionMode(mode) {
+      this.projectionMode = mode === 'orthographic' ? 'orthographic' : 'equirectangular';
+      if (this.projectionMode === 'orthographic') {
+        // Center globe on current observer initially
+        this.globeCenter.lon = this.observer.lon;
+        this.globeCenter.lat = Math.max(-60, Math.min(60, this.observer.lat));
+      }
     }
   
     setObserver(lat, lon, name = 'Custom Observer') {
@@ -1311,37 +1592,145 @@
     }
   
     setupInteractivity() {
-      const handleCoordEvent = (e) => {
+      const getCanvasPos = (e) => {
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-  
-        // Convert Canvas pixel to equirectangular [lon, lat]
-        const lon = (x / rect.width) * 360 - 180;
-        const lat = 90 - (y / rect.height) * 180;
-  
         return {
-          lat: Math.max(-90, Math.min(90, lat)),
-          lon: Math.max(-180, Math.min(180, lon))
+          clientX: e.clientX - rect.left,
+          clientY: e.clientY - rect.top,
+          rectW: rect.width,
+          rectH: rect.height
         };
       };
   
+      this.canvas.addEventListener('mousedown', (e) => {
+        const p = getCanvasPos(e);
+        this.isDragging = true;
+        this.dragStartPos = { x: p.clientX, y: p.clientY };
+        this.dragStartGlobe = { lon: this.globeCenter.lon, lat: this.globeCenter.lat };
+        this.totalDragDist = 0;
+      });
+  
       this.canvas.addEventListener('mousemove', (e) => {
-        const coord = handleCoordEvent(e);
-        this.hoverCoord = coord;
-        if (this.isDragging) {
-          this.setObserver(coord.lat, coord.lon, 'Selected Position');
+        const p = getCanvasPos(e);
+  
+        if (this.projectionMode === 'orthographic') {
+          const cx = p.rectW / 2;
+          const cy = p.rectH / 2;
+          const radius = Math.min(p.rectW, p.rectH) * 0.42;
+          const relX = p.clientX - cx;
+          const relY = p.clientY - cy;
+  
+          if (this.isDragging && this.dragStartPos) {
+            const dx = p.clientX - this.dragStartPos.x;
+            const dy = p.clientY - this.dragStartPos.y;
+            this.totalDragDist += Math.abs(dx) + Math.abs(dy);
+  
+            // Rotate 3D globe smoothly with drag
+            const sens = 0.5;
+            let newLon = this.dragStartGlobe.lon - dx * sens;
+            let newLat = this.dragStartGlobe.lat + dy * sens;
+  
+            while (newLon > 180) newLon -= 360;
+            while (newLon < -180) newLon += 360;
+            newLat = Math.max(-85, Math.min(85, newLat));
+  
+            this.globeCenter.lon = newLon;
+            this.globeCenter.lat = newLat;
+          } else {
+            // Hover raycasting
+            const hit = unprojectOrthographic(relX, relY, this.globeCenter.lon, this.globeCenter.lat, radius);
+            this.hoverCoord = hit.hit ? { lat: hit.lat, lon: hit.lon } : null;
+          }
+        } else {
+          // 2D Equirectangular
+          const lon = (p.clientX / p.rectW) * 360 - 180;
+          const lat = 90 - (p.clientY / p.rectH) * 180;
+          this.hoverCoord = {
+            lat: Math.max(-90, Math.min(90, lat)),
+            lon: Math.max(-180, Math.min(180, lon))
+          };
+  
+          if (this.isDragging) {
+            if (this.dragStartPos) {
+              const dx = p.clientX - this.dragStartPos.x;
+              const dy = p.clientY - this.dragStartPos.y;
+              this.totalDragDist += Math.abs(dx) + Math.abs(dy);
+            }
+            this.setObserver(this.hoverCoord.lat, this.hoverCoord.lon, 'Selected Position');
+          }
         }
       });
   
-      this.canvas.addEventListener('mousedown', (e) => {
-        this.isDragging = true;
-        const coord = handleCoordEvent(e);
-        this.setObserver(coord.lat, coord.lon, 'Selected Position');
-      });
+      window.addEventListener('mouseup', (e) => {
+        if (!this.isDragging) return;
+        const p = getCanvasPos(e);
+        const isClick = this.totalDragDist < 6;
   
-      window.addEventListener('mouseup', () => {
+        if (this.projectionMode === 'orthographic') {
+          if (isClick) {
+            const cx = p.rectW / 2;
+            const cy = p.rectH / 2;
+            const radius = Math.min(p.rectW, p.rectH) * 0.41;
+            const relX = p.clientX - cx;
+            const relY = p.clientY - cy;
+  
+            const hit = unprojectOrthographic(relX, relY, this.globeCenter.lon, this.globeCenter.lat, radius);
+            if (hit.hit) {
+              // Check if clicking close to any preset observatory
+              let targetObs = null;
+              let minDist = 16;
+              for (const obs of PRESET_OBSERVATORIES) {
+                const proj = projectOrthographic(obs.lon, obs.lat, this.globeCenter.lon, this.globeCenter.lat, radius);
+                if (proj.visible) {
+                  const dist = Math.hypot(proj.x - relX, proj.y - relY);
+                  if (dist < minDist) {
+                    minDist = dist;
+                    targetObs = obs;
+                  }
+                }
+              }
+  
+              if (targetObs) {
+                this.setObserver(targetObs.lat, targetObs.lon, targetObs.name);
+              } else {
+                this.setObserver(hit.lat, hit.lon, 'Selected Position');
+              }
+  
+              if (this.onOpenSkyDome) {
+                this.onOpenSkyDome(this.observer);
+              }
+            }
+          }
+        } else {
+          // 2D Equirectangular
+          if (isClick) {
+            const lon = (p.clientX / p.rectW) * 360 - 180;
+            const lat = 90 - (p.clientY / p.rectH) * 180;
+            let targetObs = null;
+            let minDist = 16;
+            for (const obs of PRESET_OBSERVATORIES) {
+              const [ox, oy] = [((obs.lon + 180) / 360) * p.rectW, ((90 - obs.lat) / 180) * p.rectH];
+              const dist = Math.hypot(ox - p.clientX, oy - p.clientY);
+              if (dist < minDist) {
+                minDist = dist;
+                targetObs = obs;
+              }
+            }
+  
+            if (targetObs) {
+              this.setObserver(targetObs.lat, targetObs.lon, targetObs.name);
+            } else {
+              this.setObserver(lat, lon, 'Selected Position');
+            }
+  
+            if (this.onOpenSkyDome) {
+              this.onOpenSkyDome(this.observer);
+            }
+          }
+        }
+  
         this.isDragging = false;
+        this.dragStartPos = null;
       });
   
       this.canvas.addEventListener('mouseleave', () => {
@@ -1351,7 +1740,7 @@
     }
   
     /**
-     * Project geographic coordinates [lon, lat] to Canvas coordinates [x, y].
+     * Project geographic coordinates [lon, lat] to Canvas coordinates [x, y] in 2D mode.
      */
     project(lon, lat) {
       const w = this.canvas.width;
@@ -1371,11 +1760,26 @@
       ctx.save();
       ctx.clearRect(0, 0, w, h);
   
+      if (this.projectionMode === 'orthographic') {
+        this.renderOrthographicGlobe(ctx, date, w, h, dpr);
+      } else {
+        this.renderEquirectangular(ctx, date, w, h, dpr);
+      }
+  
+      ctx.restore();
+    }
+  
+    /* ==========================================================================
+       2D EQUIRECTANGULAR PROJECTION
+       ========================================================================== */
+    renderEquirectangular(ctx, date, w, h, dpr) {
+      const opt = this.options;
+  
       // 1. Ocean Background
       ctx.fillStyle = opt.oceanFill;
       ctx.fillRect(0, 0, w, h);
   
-      // 2. Graticule Lines (Equator, Meridians, Tropics, Polar Circles)
+      // 2. Graticule Lines
       this.drawGraticule(ctx, w, h);
   
       // 3. World Continents Landmass Polygons
@@ -1394,99 +1798,358 @@
       this.drawObserver(ctx, dpr);
   
       // 8. Hairline Platinum Border & Frame Accents
-      this.drawObservatoryFrame(ctx, w, h, dpr);
-  
-      ctx.restore();
+      this.drawObservatoryFrame(ctx, w, h, dpr, 'EQUIRECTANGULAR');
     }
   
-    drawGraticule(ctx, w, h) {
+    /* ==========================================================================
+       3D ORTHOGRAPHIC SPHERICAL GLOBE PROJECTION
+       ========================================================================== */
+    renderOrthographicGlobe(ctx, date, w, h, dpr) {
       const opt = this.options;
-      const dpr = this.dpr;
+      const cx = w / 2;
+      const cy = h / 2;
+      const radius = Math.min(w, h) * 0.41;
+      const centerLon = this.globeCenter.lon;
+      const centerLat = this.globeCenter.lat;
   
-      ctx.lineWidth = 0.5 * dpr;
+      const { subsolarPoint } = getSolarPosition(date);
+      const sunPhiRad = subsolarPoint.latitudeDeg * (Math.PI / 180);
+      const sunLamRad = subsolarPoint.longitudeDeg * (Math.PI / 180);
   
-      // Meridians every 15° (1 hour of solar time)
-      for (let lon = -180; lon <= 180; lon += 15) {
-        const [x] = this.project(lon, 0);
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.strokeStyle = lon === 0 ? 'rgba(200, 170, 110, 0.4)' : opt.gridColor;
-        ctx.stroke();
-      }
+      // 1. Deep space backdrop with subtle stars
+      ctx.fillStyle = '#06080d';
+      ctx.fillRect(0, 0, w, h);
   
-      // Parallels every 15°
-      for (let lat = -75; lat <= 75; lat += 15) {
-        const [, y] = this.project(0, lat);
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.strokeStyle = opt.gridColor;
-        ctx.stroke();
-      }
+      // 2. Atmospheric Outer Limb Glow (Aerospace cyan luminescence)
+      const limbGrad = ctx.createRadialGradient(cx, cy, radius * 0.95, cx, cy, radius * 1.07);
+      limbGrad.addColorStop(0, 'rgba(79, 164, 232, 0.45)');
+      limbGrad.addColorStop(0.5, 'rgba(79, 164, 232, 0.18)');
+      limbGrad.addColorStop(1, 'rgba(79, 164, 232, 0)');
   
-      // Equator (0°)
-      const [, eqY] = this.project(0, 0);
       ctx.beginPath();
-      ctx.moveTo(0, eqY);
-      ctx.lineTo(w, eqY);
-      ctx.strokeStyle = opt.equatorColor;
-      ctx.lineWidth = 1 * dpr;
+      ctx.arc(cx, cy, radius * 1.07, 0, Math.PI * 2);
+      ctx.fillStyle = limbGrad;
+      ctx.fill();
+  
+      // 3. Spherical Ocean Base (Clip to Globe)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.clip();
+  
+      // Deep oceanic gradient
+      const oceanGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.1, cx, cy, radius);
+      oceanGrad.addColorStop(0, '#101726');
+      oceanGrad.addColorStop(0.7, '#0a0f1c');
+      oceanGrad.addColorStop(1, '#060912');
+      ctx.fillStyle = oceanGrad;
+      ctx.fill();
+  
+      // 4. 3D Projected Graticule
+      this.drawOrthographicGraticule(ctx, cx, cy, radius, centerLon, centerLat, dpr);
+  
+      // 5. 3D Projected Continents
+      this.drawOrthographicContinents(ctx, cx, cy, radius, centerLon, centerLat, dpr);
+  
+      // 6. 3D Spherical Day/Night Shadow Terminator
+      this.drawOrthographicDayNight(ctx, cx, cy, radius, centerLon, centerLat, sunPhiRad, sunLamRad);
+  
+      // 7. City Lights Glowing on Night Side of Earth
+      this.drawOrthographicCityLights(ctx, cx, cy, radius, centerLon, centerLat, sunPhiRad, sunLamRad, dpr);
+  
+      // 8. Preset Observatories on 3D Globe
+      for (const obs of PRESET_OBSERVATORIES) {
+        if (Math.abs(obs.lat - this.observer.lat) < 0.1 && Math.abs(obs.lon - this.observer.lon) < 0.1) {
+          continue;
+        }
+        const proj = projectOrthographic(obs.lon, obs.lat, centerLon, centerLat, radius);
+        if (proj.visible) {
+          ctx.beginPath();
+          ctx.arc(cx + proj.x, cy + proj.y, 2.0 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(216, 226, 236, 0.55)';
+          ctx.fill();
+        }
+      }
+  
+      // 9. 3D Subsolar Zenith Reticle on Globe
+      const projSun = projectOrthographic(subsolarPoint.longitudeDeg, subsolarPoint.latitudeDeg, centerLon, centerLat, radius);
+      if (projSun.visible) {
+        this.drawGlobeSunMarker(ctx, cx + projSun.x, cy + projSun.y, dpr);
+      }
+  
+      // 10. 3D Observer Crosshairs on Globe
+      const projObs = projectOrthographic(this.observer.lon, this.observer.lat, centerLon, centerLat, radius);
+      if (projObs.visible) {
+        this.drawGlobeObserverMarker(ctx, cx + projObs.x, cy + projObs.y, dpr);
+      }
+  
+      ctx.restore(); // End globe clip
+  
+      // 10. Outer Titanium & Platinum Horological Bezel Ring
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = opt.primaryGold;
+      ctx.lineWidth = 1.8 * dpr;
       ctx.stroke();
   
-      // Tropics of Cancer & Capricorn (+/- 23.44°)
-      for (const lat of [23.44, -23.44]) {
-        const [, y] = this.project(0, lat);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 3 * dpr, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(216, 226, 236, 0.25)';
+      ctx.lineWidth = 0.8 * dpr;
+      ctx.stroke();
+  
+      this.drawObservatoryFrame(ctx, w, h, dpr, '3D ORTHOGRAPHIC GLOBE');
+    }
+  
+    drawOrthographicGraticule(ctx, cx, cy, radius, centerLon, centerLat, dpr) {
+      const opt = this.options;
+      ctx.lineWidth = 0.6 * dpr;
+  
+      // Projected Parallels every 30°
+      for (let lat = -60; lat <= 60; lat += 30) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.strokeStyle = opt.tropicColor;
-        ctx.lineWidth = 0.7 * dpr;
-        ctx.setLineDash([3 * dpr, 4 * dpr]);
+        let hasStarted = false;
+        for (let lon = -180; lon <= 180; lon += 4) {
+          const p = projectOrthographic(lon, lat, centerLon, centerLat, radius);
+          if (p.visible) {
+            if (!hasStarted) {
+              ctx.moveTo(cx + p.x, cy + p.y);
+              hasStarted = true;
+            } else {
+              ctx.lineTo(cx + p.x, cy + p.y);
+            }
+          } else {
+            hasStarted = false;
+          }
+        }
+        ctx.strokeStyle = lat === 0 ? opt.equatorColor : opt.gridColor;
         ctx.stroke();
-        ctx.setLineDash([]);
       }
   
-      // Arctic and Antarctic circles (+/- 66.56°)
-      for (const lat of [66.56, -66.56]) {
-        const [, y] = this.project(0, lat);
+      // Projected Meridians every 30°
+      for (let lon = -180; lon < 180; lon += 30) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.strokeStyle = 'rgba(79, 164, 232, 0.15)';
-        ctx.lineWidth = 0.7 * dpr;
-        ctx.setLineDash([2 * dpr, 5 * dpr]);
+        let hasStarted = false;
+        for (let lat = -88; lat <= 88; lat += 3) {
+          const p = projectOrthographic(lon, lat, centerLon, centerLat, radius);
+          if (p.visible) {
+            if (!hasStarted) {
+              ctx.moveTo(cx + p.x, cy + p.y);
+              hasStarted = true;
+            } else {
+              ctx.lineTo(cx + p.x, cy + p.y);
+            }
+          } else {
+            hasStarted = false;
+          }
+        }
+        ctx.strokeStyle = lon === 0 ? 'rgba(200, 170, 110, 0.35)' : opt.gridColor;
         ctx.stroke();
-        ctx.setLineDash([]);
       }
     }
   
-    drawLandmasses(ctx) {
+    drawOrthographicContinents(ctx, cx, cy, radius, centerLon, centerLat, dpr) {
       const opt = this.options;
-      const dpr = this.dpr;
-  
       ctx.fillStyle = opt.landFill;
       ctx.strokeStyle = opt.landBorder;
-      ctx.lineWidth = 0.8 * dpr;
+      ctx.lineWidth = 0.9 * dpr;
   
-      for (const polygon of WORLD_CONTINENTS) {
-        if (polygon.length < 3) continue;
+      for (const poly of WORLD_CONTINENTS) {
         ctx.beginPath();
-        const [firstLon, firstLat] = polygon[0];
-        const [startX, startY] = this.project(firstLon, firstLat);
-        ctx.moveTo(startX, startY);
+        let started = false;
   
-        for (let i = 1; i < polygon.length; i++) {
-          const [lon, lat] = polygon[i];
-          const [x, y] = this.project(lon, lat);
-          ctx.lineTo(x, y);
+        for (let i = 0; i < poly.length; i++) {
+          const [lon, lat] = poly[i];
+          const p = projectOrthographic(lon, lat, centerLon, centerLat, radius);
+  
+          if (p.visible) {
+            if (!started) {
+              ctx.moveTo(cx + p.x, cy + p.y);
+              started = true;
+            } else {
+              ctx.lineTo(cx + p.x, cy + p.y);
+            }
+          } else {
+            started = false;
+          }
         }
-        ctx.closePath();
         ctx.fill();
         ctx.stroke();
       }
     }
   
+    drawOrthographicDayNight(ctx, cx, cy, radius, centerLon, centerLat, sunPhiRad, sunLamRad) {
+      // Render spherical day/night shadow using an offscreen grid buffer
+      if (!this.orthoShadowCanvas) {
+        this.orthoShadowW = 160;
+        this.orthoShadowH = 160;
+        this.orthoShadowCanvas = document.createElement('canvas');
+        this.orthoShadowCanvas.width = this.orthoShadowW;
+        this.orthoShadowCanvas.height = this.orthoShadowH;
+        this.orthoShadowCtx = this.orthoShadowCanvas.getContext('2d');
+        this.orthoShadowData = this.orthoShadowCtx.createImageData(this.orthoShadowW, this.orthoShadowH);
+      }
+  
+      const sw = this.orthoShadowW;
+      const sh = this.orthoShadowH;
+      const sRadius = sw / 2;
+      const buf = this.orthoShadowData.data;
+  
+      const sinPhiS = Math.sin(sunPhiRad);
+      const cosPhiS = Math.cos(sunPhiRad);
+  
+      for (let py = 0; py < sh; py++) {
+        const relY = py - sRadius;
+        const rowOffset = py * sw * 4;
+  
+        for (let px = 0; px < sw; px++) {
+          const relX = px - sRadius;
+          const idx = rowOffset + px * 4;
+  
+          // Check if inside globe sphere
+          const rho = Math.sqrt(relX * relX + relY * relY);
+          if (rho > sRadius) {
+            buf[idx + 3] = 0;
+            continue;
+          }
+  
+          // Raycast back to (lon, lat)
+          const hit = unprojectOrthographic(relX, relY, centerLon, centerLat, sRadius);
+          if (!hit.hit) {
+            buf[idx + 3] = 0;
+            continue;
+          }
+  
+          const phi = hit.lat * (Math.PI / 180);
+          const lam = hit.lon * (Math.PI / 180);
+          const sinAlt = Math.sin(phi) * sinPhiS + Math.cos(phi) * cosPhiS * Math.cos(lam - sunLamRad);
+  
+          if (sinAlt >= 0.08) {
+            // Daylight
+            buf[idx + 3] = 0;
+          } else if (sinAlt > 0) {
+            // Golden hour
+            buf[idx] = 200;
+            buf[idx + 1] = 170;
+            buf[idx + 2] = 110;
+            buf[idx + 3] = Math.round((1 - sinAlt / 0.08) * 35);
+          } else if (sinAlt >= -0.1045) {
+            // Civil twilight
+            buf[idx] = 8;
+            buf[idx + 1] = 12;
+            buf[idx + 2] = 28;
+            buf[idx + 3] = Math.round(50 + (-sinAlt / 0.1045) * 60);
+          } else if (sinAlt >= -0.2079) {
+            // Nautical twilight
+            buf[idx] = 6;
+            buf[idx + 1] = 9;
+            buf[idx + 2] = 20;
+            buf[idx + 3] = Math.round(110 + ((-sinAlt - 0.1045) / 0.1034) * 55);
+          } else {
+            // Full nocturnal night
+            buf[idx] = 4;
+            buf[idx + 1] = 5;
+            buf[idx + 2] = 12;
+            buf[idx + 3] = 215;
+          }
+        }
+      }
+  
+      this.orthoShadowCtx.putImageData(this.orthoShadowData, 0, 0);
+  
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.orthoShadowCanvas, cx - radius, cy - radius, radius * 2, radius * 2);
+      ctx.restore();
+    }
+  
+    drawOrthographicCityLights(ctx, cx, cy, radius, centerLon, centerLat, sunPhiRad, sunLamRad, dpr) {
+      const sinPhiS = Math.sin(sunPhiRad);
+      const cosPhiS = Math.cos(sunPhiRad);
+  
+      ctx.save();
+      for (const city of MAJOR_CITIES) {
+        const p = projectOrthographic(city.lon, city.lat, centerLon, centerLat, radius);
+        if (!p.visible) continue;
+  
+        // Check if city is on the night hemisphere
+        const phi = city.lat * (Math.PI / 180);
+        const lam = city.lon * (Math.PI / 180);
+        const sinAlt = Math.sin(phi) * sinPhiS + Math.cos(phi) * cosPhiS * Math.cos(lam - sunLamRad);
+  
+        if (sinAlt < -0.05) {
+          // Darkness intensity factor
+          const darkness = Math.min(1.0, (-sinAlt - 0.05) / 0.15);
+          const cityR = (1.5 * city.weight) * dpr;
+  
+          // Warm golden incandescent city light
+          ctx.beginPath();
+          ctx.arc(cx + p.x, cy + p.y, cityR, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 224, 130, ${0.75 * darkness})`;
+          ctx.shadowColor = '#ffca28';
+          ctx.shadowBlur = 6 * dpr;
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  
+    drawGlobeSunMarker(ctx, sx, sy, dpr) {
+      ctx.save();
+      const sunGrad = ctx.createRadialGradient(sx, sy, 1 * dpr, sx, sy, 10 * dpr);
+      sunGrad.addColorStop(0, '#ffffff');
+      sunGrad.addColorStop(0.4, '#c8aa6e');
+      sunGrad.addColorStop(1, 'rgba(200, 170, 110, 0)');
+  
+      ctx.beginPath();
+      ctx.arc(sx, sy, 10 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = sunGrad;
+      ctx.fill();
+  
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.restore();
+    }
+  
+    drawGlobeObserverMarker(ctx, ox, oy, dpr) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(ox, oy, 7 * dpr, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(200, 170, 110, 0.85)';
+      ctx.lineWidth = 1.4 * dpr;
+      ctx.stroke();
+  
+      ctx.beginPath();
+      ctx.arc(ox, oy, 2.5 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+  
+      // Crosshairs
+      ctx.strokeStyle = '#e8ca8e';
+      ctx.lineWidth = 1 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(ox - 10 * dpr, oy);
+      ctx.lineTo(ox - 6 * dpr, oy);
+      ctx.moveTo(ox + 6 * dpr, oy);
+      ctx.lineTo(ox + 10 * dpr, oy);
+      ctx.moveTo(ox, oy - 10 * dpr);
+      ctx.lineTo(ox, oy - 6 * dpr);
+      ctx.moveTo(ox, oy + 6 * dpr);
+      ctx.lineTo(ox, oy + 10 * dpr);
+      ctx.stroke();
+  
+      ctx.fillStyle = '#e8ca8e';
+      ctx.font = `600 ${Math.round(8 * dpr)}px "Space Mono", monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(`⌖ ${this.observer.name}`, ox + 9 * dpr, oy - 7 * dpr);
+      ctx.restore();
+    }
+  
+    /* ==========================================================================
+       SHARED HELPERS (Graticule, Frame, Telemetry)
+       ========================================================================== */
     initShadowMap() {
       if (typeof document !== 'undefined') {
         this.shadowW = 360;
@@ -1499,10 +2162,6 @@
       }
     }
   
-    /**
-     * Draws multi-band twilight gradients and deep night shadow using direct
-     * spherical solar altitude matrix. Eliminates polygon self-intersection artifacts.
-     */
     drawTwilightAndNightShadow(ctx, date, w, h) {
       const { subsolarPoint } = getSolarPosition(date);
       const phiSRad = subsolarPoint.latitudeDeg * (Math.PI / 180);
@@ -1532,55 +2191,45 @@
             const sinAlt = term1 + term2 * Math.cos(lam - lamSRad);
             const idx = rowOffset + x * 4;
   
-            // Atmospheric nocturnal shadow palette:
-            // Deep obsidian/navy with warm golden glow at optical horizon
             if (sinAlt >= 0.1045) {
-              // Full daylight (altitude >= +6°)
               buf[idx + 3] = 0;
             } else if (sinAlt > 0) {
-              // Golden hour (0° to +6°)
               buf[idx] = 200;
               buf[idx + 1] = 170;
               buf[idx + 2] = 110;
               buf[idx + 3] = Math.round((1 - sinAlt / 0.1045) * 30);
             } else if (sinAlt >= -0.1045) {
-              // Civil twilight (0° to -6°)
               buf[idx] = 10;
               buf[idx + 1] = 16;
               buf[idx + 2] = 32;
               buf[idx + 3] = Math.round(50 + (-sinAlt / 0.1045) * 60);
             } else if (sinAlt >= -0.2079) {
-              // Nautical twilight (-6° to -12°)
               buf[idx] = 7;
               buf[idx + 1] = 10;
               buf[idx + 2] = 22;
               buf[idx + 3] = Math.round(110 + ((-sinAlt - 0.1045) / 0.1034) * 55);
             } else if (sinAlt >= -0.3090) {
-              // Astronomical twilight (-12° to -18°)
               buf[idx] = 5;
               buf[idx + 1] = 7;
               buf[idx + 2] = 16;
               buf[idx + 3] = Math.round(165 + ((-sinAlt - 0.2079) / 0.1011) * 35);
             } else {
-              // Complete astronomical night (< -18°)
               buf[idx] = 4;
               buf[idx + 1] = 5;
               buf[idx + 2] = 11;
-              buf[idx + 3] = 215; // deep obsidian shadow
+              buf[idx + 3] = 215;
             }
           }
         }
   
         this.shadowCtx.putImageData(this.shadowImageData, 0, 0);
   
-        // Render smooth interpolated shadow over the map
         ctx.save();
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(this.shadowCanvas, 0, 0, w, h);
         ctx.restore();
       }
   
-      // Crisp glowing optical horizon line (alt = 0°)
       const term0 = getTerminatorPoints(date, 360, 0);
       ctx.save();
       ctx.strokeStyle = 'rgba(200, 170, 110, 0.7)';
@@ -1595,7 +2244,6 @@
         const [tx, ty] = this.project(pt.longitudeDeg, pt.latitudeDeg);
         if (i > 0) {
           const prevPt = term0[i - 1];
-          // Break path across antimeridian wrap (-180 / +180) to avoid screen-wide horizontal lines
           if (Math.abs(pt.longitudeDeg - prevPt.longitudeDeg) > 180) {
             ctx.stroke();
             ctx.beginPath();
@@ -1613,9 +2261,65 @@
       ctx.restore();
     }
   
+    drawGraticule(ctx, w, h) {
+      const opt = this.options;
+      const dpr = this.dpr;
+      ctx.lineWidth = 0.5 * dpr;
+  
+      for (let lon = -180; lon <= 180; lon += 15) {
+        const [x] = this.project(lon, 0);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.strokeStyle = lon === 0 ? 'rgba(200, 170, 110, 0.4)' : opt.gridColor;
+        ctx.stroke();
+      }
+  
+      for (let lat = -75; lat <= 75; lat += 15) {
+        const [, y] = this.project(0, lat);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.strokeStyle = opt.gridColor;
+        ctx.stroke();
+      }
+  
+      const [, eqY] = this.project(0, 0);
+      ctx.beginPath();
+      ctx.moveTo(0, eqY);
+      ctx.lineTo(w, eqY);
+      ctx.strokeStyle = opt.equatorColor;
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+    }
+  
+    drawLandmasses(ctx) {
+      const opt = this.options;
+      const dpr = this.dpr;
+      ctx.fillStyle = opt.landFill;
+      ctx.strokeStyle = opt.landBorder;
+      ctx.lineWidth = 0.8 * dpr;
+  
+      for (const polygon of WORLD_CONTINENTS) {
+        if (polygon.length < 3) continue;
+        ctx.beginPath();
+        const [firstLon, firstLat] = polygon[0];
+        const [startX, startY] = this.project(firstLon, firstLat);
+        ctx.moveTo(startX, startY);
+  
+        for (let i = 1; i < polygon.length; i++) {
+          const [lon, lat] = polygon[i];
+          const [x, y] = this.project(lon, lat);
+          ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  
     drawPresetObservatories(ctx, dpr) {
       for (const obs of PRESET_OBSERVATORIES) {
-        // Don't duplicate active observer
         if (Math.abs(obs.lat - this.observer.lat) < 0.1 && Math.abs(obs.lon - this.observer.lon) < 0.1) {
           continue;
         }
@@ -1631,11 +2335,9 @@
       const { subsolarPoint } = getSolarPosition(date);
       const [sunX, sunY] = this.project(subsolarPoint.longitudeDeg, subsolarPoint.latitudeDeg);
   
-      // Golden solar zenith reticle
       ctx.save();
       ctx.translate(sunX, sunY);
   
-      // Glowing solar disc
       const sunGrad = ctx.createRadialGradient(0, 0, 1 * dpr, 0, 0, 8 * dpr);
       sunGrad.addColorStop(0, '#fff4d0');
       sunGrad.addColorStop(0.4, '#c8aa6e');
@@ -1646,13 +2348,11 @@
       ctx.fillStyle = sunGrad;
       ctx.fill();
   
-      // Central sun dot
       ctx.beginPath();
       ctx.arc(0, 0, 2.5 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
   
-      // Radiating reticle crosshairs
       ctx.strokeStyle = '#c8aa6e';
       ctx.lineWidth = 1 * dpr;
       for (let i = 0; i < 4; i++) {
@@ -1662,21 +2362,6 @@
         ctx.lineTo(0, 9 * dpr);
         ctx.stroke();
       }
-  
-      ctx.restore();
-  
-      // Antipodal Nadir (midnight center)
-      let nadirLon = subsolarPoint.longitudeDeg + 180;
-      if (nadirLon > 180) nadirLon -= 360;
-      const nadirLat = -subsolarPoint.latitudeDeg;
-      const [nadirX, nadirY] = this.project(nadirLon, nadirLat);
-  
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(nadirX, nadirY, 3 * dpr, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(79, 164, 232, 0.5)';
-      ctx.lineWidth = 1 * dpr;
-      ctx.stroke();
       ctx.restore();
     }
   
@@ -1684,20 +2369,17 @@
       const [x, y] = this.project(this.observer.lon, this.observer.lat);
   
       ctx.save();
-      // Pulsing outer beacon ring
       ctx.beginPath();
       ctx.arc(x, y, 7 * dpr, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(200, 170, 110, 0.7)';
       ctx.lineWidth = 1.2 * dpr;
       ctx.stroke();
   
-      // Inner bright core
       ctx.beginPath();
       ctx.arc(x, y, 2.5 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
   
-      // Crosshair lines
       ctx.strokeStyle = 'rgba(232, 202, 142, 0.8)';
       ctx.lineWidth = 1 * dpr;
   
@@ -1712,7 +2394,6 @@
       ctx.lineTo(x, y + 11 * dpr);
       ctx.stroke();
   
-      // Label
       ctx.fillStyle = '#e8ca8e';
       ctx.font = `600 ${Math.round(8 * dpr)}px "Space Mono", monospace`;
       ctx.textAlign = 'left';
@@ -1722,53 +2403,46 @@
       ctx.restore();
     }
   
-    drawObservatoryFrame(ctx, w, h, dpr) {
+    drawObservatoryFrame(ctx, w, h, dpr, projectionLabel) {
       const opt = this.options;
   
-      // Hairline platinum frame
       ctx.strokeStyle = 'rgba(216, 226, 236, 0.16)';
       ctx.lineWidth = 1 * dpr;
       ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
   
-      // Corner bracket ornaments (Observatory telemetry style)
       const bracketSize = 10 * dpr;
       ctx.strokeStyle = opt.primaryGold;
       ctx.lineWidth = 1.5 * dpr;
   
-      // Top-left
       ctx.beginPath();
       ctx.moveTo(0.5, bracketSize);
       ctx.lineTo(0.5, 0.5);
       ctx.lineTo(bracketSize, 0.5);
       ctx.stroke();
   
-      // Top-right
       ctx.beginPath();
       ctx.moveTo(w - bracketSize, 0.5);
       ctx.lineTo(w - 0.5, 0.5);
       ctx.lineTo(w - 0.5, bracketSize);
       ctx.stroke();
   
-      // Bottom-left
       ctx.beginPath();
       ctx.moveTo(0.5, h - bracketSize);
       ctx.lineTo(0.5, h - 0.5);
       ctx.lineTo(bracketSize, h - 0.5);
       ctx.stroke();
   
-      // Bottom-right
       ctx.beginPath();
       ctx.moveTo(w - bracketSize, h - 0.5);
       ctx.lineTo(w - 0.5, h - 0.5);
       ctx.lineTo(w - 0.5, h - bracketSize);
       ctx.stroke();
   
-      // Telemetry stamp in top corner
       ctx.fillStyle = 'rgba(200, 170, 110, 0.8)';
       ctx.font = `600 ${Math.round(7 * dpr)}px "Space Mono", monospace`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
-      ctx.fillText('SOLAR TERMINATOR OBSERVATORY // EQUIRECTANGULAR', w - 14 * dpr, 6 * dpr);
+      ctx.fillText(`SOLAR TERMINATOR OBSERVATORY // ${projectionLabel}`, w - 14 * dpr, 6 * dpr);
     }
   }
   
@@ -2584,6 +3258,520 @@
   
 
   // ==========================================
+  // Module: src/ui/sky-dome.js
+  // ==========================================
+  /**
+   * Meridian Chronometer — Observatory Zenith Sky Dome (Planisphere)
+   * High-precision local horizontal stereographic sky dome.
+   * Projects real-time visible stars, planets, horizon, zenith, and celestial meridian.
+   */
+  
+  
+  
+  class SkyDomeModal {
+    constructor(modalElement, canvasElement, options = {}) {
+      this.modal = modalElement;
+      this.canvas = canvasElement;
+      this.ctx = canvasElement.getContext('2d');
+      this.options = {
+        primaryGold: '#c8aa6e',
+        goldBright: '#e8ca8e',
+        platinum: '#d8e2ec',
+        platinumMuted: 'rgba(216, 226, 236, 0.35)',
+        deepSpace: '#05070d',
+        gridColor: 'rgba(216, 226, 236, 0.10)',
+        meridianColor: 'rgba(200, 170, 110, 0.35)',
+        horizonColor: 'rgba(200, 170, 110, 0.8)',
+        ...options
+      };
+  
+      this.isOpen = false;
+      this.hoveredObject = null;
+      this.currentDate = new Date();
+      this.currentObserver = { lat: 51.4769, lon: 0.0005, name: 'Royal Observatory Greenwich' };
+      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  
+      this.initEvents();
+      this.resize();
+    }
+  
+    resize() {
+      if (!this.canvas) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const size = Math.min(rect.width || 460, rect.height || 460);
+      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.canvas.width = Math.round(size * this.dpr);
+      this.canvas.height = Math.round(size * this.dpr);
+      this.radius = (size / 2) * 0.88;
+    }
+  
+    initEvents() {
+      if (!this.canvas) return;
+  
+      // Hover tooltip tracking
+      this.canvas.addEventListener('mousemove', (e) => {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * this.dpr;
+        const y = (e.clientY - rect.top) * this.dpr;
+        this.checkHover(x, y);
+      });
+  
+      this.canvas.addEventListener('mouseleave', () => {
+        this.hoveredObject = null;
+      });
+  
+      // Close button in modal
+      const btnClose = this.modal.querySelector('.modal-close-btn');
+      if (btnClose) {
+        btnClose.addEventListener('click', () => this.close());
+      }
+  
+      // Close on overlay backdrop click
+      this.modal.addEventListener('click', (e) => {
+        if (e.target === this.modal) {
+          this.close();
+        }
+      });
+  
+      // Close on ESC key
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.isOpen) {
+          this.close();
+        }
+      });
+    }
+  
+    open(observer, date) {
+      this.currentObserver = observer;
+      this.currentDate = date;
+      this.isOpen = true;
+      this.modal.classList.add('active');
+      this.modal.setAttribute('aria-hidden', 'false');
+      this.resize();
+      this.render();
+    }
+  
+    close() {
+      this.isOpen = false;
+      this.modal.classList.remove('active');
+      this.modal.setAttribute('aria-hidden', 'true');
+      this.hoveredObject = null;
+    }
+  
+    /**
+     * Projects Horizontal coordinates (altDeg, azDeg) to 2D Planisphere Canvas.
+     * Center (cx, cy) is Zenith (alt = 90°).
+     * Perimeter is Horizon (alt = 0°).
+     * North is at Top (az = 0°), East at Left or Right (standard planisphere holds map up to sky).
+     */
+    projectAltAz(altDeg, azDeg, cx, cy, r) {
+      // Polar projection: distance from center proportional to zenith angle (90 - alt)
+      const zAngle = 90.0 - altDeg;
+      const dist = (zAngle / 90.0) * r;
+  
+      // Azimuth measured from North (0° / top), clockwise through East (90° / right)
+      const azRad = (azDeg - 90.0) * (Math.PI / 180.0);
+      const x = cx + dist * Math.cos(azRad);
+      const y = cy + dist * Math.sin(azRad);
+  
+      return { x, y, dist };
+    }
+  
+    checkHover(canvasX, canvasY) {
+      if (!this.cachedCelestialObjects) return;
+      let closest = null;
+      let minDist = 14 * this.dpr;
+  
+      for (const obj of this.cachedCelestialObjects) {
+        if (!obj.isVisible) continue;
+        const dx = obj.projX - canvasX;
+        const dy = obj.projY - canvasY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minDist) {
+          minDist = dist;
+          closest = obj;
+        }
+      }
+  
+      this.hoveredObject = closest;
+    }
+  
+    render(date = null, observer = null) {
+      if (date) this.currentDate = date;
+      if (observer) this.currentObserver = observer;
+      if (!this.isOpen || !this.ctx) return;
+  
+      const ctx = this.ctx;
+      const w = this.canvas.width;
+      const h = this.canvas.height;
+      const cx = w / 2;
+      const cy = h / 2;
+      const dpr = this.dpr;
+      const r = this.radius * dpr;
+  
+      ctx.save();
+      ctx.clearRect(0, 0, w, h);
+  
+      const lmstHours = getLMST(this.currentDate, this.currentObserver.lon);
+      const solarPos = getSolarPosition(this.currentDate);
+  
+      // 1. Sky Background & Atmospheric Tint
+      this.drawSkyDomeBackground(ctx, cx, cy, r, solarPos);
+  
+      // 2. Dome Grid (Zenith, Horizon, Altitude circles, Meridian)
+      this.drawDomeGrid(ctx, cx, cy, r, dpr);
+  
+      // 3. Compute and Render Celestial Objects (Stars, Planets, Moon, Sun)
+      this.renderCelestialBodies(ctx, cx, cy, r, dpr, lmstHours);
+  
+      // 4. Horizon Frame & Cardinal Compass Labels (N, E, S, W)
+      this.drawHorizonFrame(ctx, cx, cy, r, dpr);
+  
+      // 5. Hover Object Inspector Card
+      if (this.hoveredObject) {
+        this.drawObjectTooltip(ctx, cx, cy, dpr, this.hoveredObject);
+      }
+  
+      ctx.restore();
+  
+      // Update Modal Header Telemetry
+      this.updateModalInfo(lmstHours);
+    }
+  
+    drawSkyDomeBackground(ctx, cx, cy, r, solarPos) {
+      // Determine sun altitude to color sky (day vs twilight vs starry night)
+      const sunAltAz = raDecToAltAz(
+        solarPos.rightAscensionHours,
+        solarPos.declinationDeg,
+        getLMST(this.currentDate, this.currentObserver.lon),
+        this.currentObserver.lat
+      );
+  
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      if (sunAltAz.altitudeDeg > 0) {
+        // Daytime solar azure glow
+        grad.addColorStop(0, '#10223d');
+        grad.addColorStop(0.7, '#0a1628');
+        grad.addColorStop(1, '#050c18');
+      } else if (sunAltAz.altitudeDeg > -12) {
+        // Twilight violet
+        grad.addColorStop(0, '#0d1024');
+        grad.addColorStop(0.7, '#070a16');
+        grad.addColorStop(1, '#03050a');
+      } else {
+        // Deep nocturnal observatory space
+        grad.addColorStop(0, '#060912');
+        grad.addColorStop(0.7, '#04060c');
+        grad.addColorStop(1, '#020306');
+      }
+  
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+  
+      // Faint Milky Way dusting
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.clip();
+      const mwGrad = ctx.createLinearGradient(cx - r, cy - r * 0.5, cx + r, cy + r * 0.5);
+      mwGrad.addColorStop(0, 'rgba(120, 160, 220, 0)');
+      mwGrad.addColorStop(0.5, 'rgba(140, 180, 255, 0.05)');
+      mwGrad.addColorStop(1, 'rgba(120, 160, 220, 0)');
+      ctx.fillStyle = mwGrad;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.restore();
+    }
+  
+    drawDomeGrid(ctx, cx, cy, r, dpr) {
+      const opt = this.options;
+  
+      // Altitude Circles (30° and 60°)
+      for (const alt of [30, 60]) {
+        const zAngle = 90 - alt;
+        const circleR = (zAngle / 90.0) * r;
+        ctx.beginPath();
+        ctx.arc(cx, cy, circleR, 0, Math.PI * 2);
+        ctx.strokeStyle = opt.gridColor;
+        ctx.lineWidth = 0.8 * dpr;
+        ctx.setLineDash([2 * dpr, 4 * dpr]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+  
+        // Altitude label
+        ctx.fillStyle = 'rgba(216, 226, 236, 0.25)';
+        ctx.font = `${Math.round(7 * dpr)}px "Space Mono", monospace`;
+        ctx.fillText(`${alt}°`, cx + 4 * dpr, cy - circleR + 9 * dpr);
+      }
+  
+      // Celestial Meridian (North-Zenith-South axis)
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx, cy + r);
+      ctx.strokeStyle = opt.meridianColor;
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+  
+      // Prime Vertical (East-Zenith-West axis)
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy);
+      ctx.lineTo(cx + r, cy);
+      ctx.strokeStyle = opt.gridColor;
+      ctx.lineWidth = 0.8 * dpr;
+      ctx.stroke();
+  
+      // Zenith Reticle
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = opt.primaryGold;
+      ctx.fill();
+      ctx.fillStyle = opt.goldBright;
+      ctx.font = `600 ${Math.round(7 * dpr)}px "Cinzel", serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText('ZENITH (90°)', cx + 6 * dpr, cy - 4 * dpr);
+    }
+  
+    renderCelestialBodies(ctx, cx, cy, r, dpr, lmstHours) {
+      const objects = [];
+      const lat = this.currentObserver.lat;
+  
+      // 1. Navigation Stars
+      for (const star of BRIGHT_STARS) {
+        const altAz = raDecToAltAz(star.raHours, star.decDeg, lmstHours, lat);
+        const isVis = altAz.altitudeDeg >= 0;
+        const { x, y } = this.projectAltAz(altAz.altitudeDeg, altAz.azimuthDeg, cx, cy, r);
+  
+        objects.push({
+          type: 'star',
+          name: star.name,
+          subtitle: `${star.bayer} in ${star.const}`,
+          mag: star.mag,
+          color: star.color,
+          alt: altAz.altitudeDeg,
+          az: altAz.azimuthDeg,
+          isVisible: isVis,
+          projX: x,
+          projY: y
+        });
+      }
+  
+      // 2. Planets (Venus, Mars, Jupiter)
+      const planets = getPlanetaryPositions(this.currentDate);
+      for (const [key, planet] of Object.entries(planets)) {
+        const altAz = raDecToAltAz(planet.raHours, planet.decDeg, lmstHours, lat);
+        const isVis = altAz.altitudeDeg >= 0;
+        const { x, y } = this.projectAltAz(altAz.altitudeDeg, altAz.azimuthDeg, cx, cy, r);
+  
+        objects.push({
+          type: 'planet',
+          name: planet.name,
+          subtitle: `${planet.symbol} Classical Planet`,
+          mag: planet.magnitude,
+          color: planet.color,
+          symbol: planet.symbol,
+          alt: altAz.altitudeDeg,
+          az: altAz.azimuthDeg,
+          isVisible: isVis,
+          projX: x,
+          projY: y
+        });
+      }
+  
+      // 3. True Sun
+      const solarPos = getSolarPosition(this.currentDate);
+      const sunAltAz = raDecToAltAz(solarPos.rightAscensionHours, solarPos.declinationDeg, lmstHours, lat);
+      const sunProj = this.projectAltAz(sunAltAz.altitudeDeg, sunAltAz.azimuthDeg, cx, cy, r);
+      objects.push({
+        type: 'sun',
+        name: 'The Sun',
+        subtitle: 'Solar Meridian Center',
+        mag: -26.7,
+        color: '#fff0a8',
+        symbol: '☀️',
+        alt: sunAltAz.altitudeDeg,
+        az: sunAltAz.azimuthDeg,
+        isVisible: sunAltAz.altitudeDeg >= -18,
+        projX: sunProj.x,
+        projY: sunProj.y
+      });
+  
+      this.cachedCelestialObjects = objects;
+  
+      // Draw visible celestial bodies
+      for (const obj of objects) {
+        if (!obj.isVisible) continue;
+  
+        ctx.save();
+        if (obj.type === 'star') {
+          // Star size based on astronomical magnitude
+          const starR = Math.max(1.5 * dpr, (4.2 - obj.mag * 0.8) * dpr);
+          ctx.beginPath();
+          ctx.arc(obj.projX, obj.projY, starR, 0, Math.PI * 2);
+          ctx.fillStyle = obj.color;
+          ctx.shadowColor = obj.color;
+          ctx.shadowBlur = 6 * dpr;
+          ctx.fill();
+  
+          // Label for bright stars (mag < 1.5)
+          if (obj.mag < 1.5) {
+            ctx.fillStyle = 'rgba(216, 226, 236, 0.7)';
+            ctx.font = `${Math.round(6.5 * dpr)}px "Space Mono", monospace`;
+            ctx.fillText(obj.name, obj.projX + starR + 3 * dpr, obj.projY + 2 * dpr);
+          }
+        } else if (obj.type === 'planet') {
+          // Glowing planetary disc
+          const pR = 3.5 * dpr;
+          ctx.beginPath();
+          ctx.arc(obj.projX, obj.projY, pR, 0, Math.PI * 2);
+          ctx.fillStyle = obj.color;
+          ctx.shadowColor = obj.color;
+          ctx.shadowBlur = 8 * dpr;
+          ctx.fill();
+  
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `bold ${Math.round(7 * dpr)}px "Space Mono", monospace`;
+          ctx.fillText(obj.name, obj.projX + pR + 4 * dpr, obj.projY + 3 * dpr);
+        } else if (obj.type === 'sun') {
+          // Solar Disc & Radiant Flare
+          const sR = 5 * dpr;
+          const sunGrad = ctx.createRadialGradient(obj.projX, obj.projY, 1, obj.projX, obj.projY, 12 * dpr);
+          sunGrad.addColorStop(0, '#ffffff');
+          sunGrad.addColorStop(0.4, '#c8aa6e');
+          sunGrad.addColorStop(1, 'rgba(200, 170, 110, 0)');
+          ctx.beginPath();
+          ctx.arc(obj.projX, obj.projY, 12 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = sunGrad;
+          ctx.fill();
+  
+          ctx.beginPath();
+          ctx.arc(obj.projX, obj.projY, sR, 0, Math.PI * 2);
+          ctx.fillStyle = '#fffdf0';
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  
+    drawHorizonFrame(ctx, cx, cy, r, dpr) {
+      const opt = this.options;
+  
+      // Horizon border (alt = 0°)
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = opt.primaryGold;
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+  
+      // Concentric outer bezel ring
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 4 * dpr, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(216, 226, 236, 0.2)';
+      ctx.lineWidth = 0.8 * dpr;
+      ctx.stroke();
+  
+      // 360-degree Azimuth ticks around the horizon
+      for (let az = 0; az < 360; az += 10) {
+        const angle = (az - 90.0) * (Math.PI / 180.0);
+        const isMajor = az % 30 === 0;
+        const tickLen = (isMajor ? 6 : 3) * dpr;
+  
+        const x1 = cx + Math.cos(angle) * r;
+        const y1 = cy + Math.sin(angle) * r;
+        const x2 = cx + Math.cos(angle) * (r - tickLen);
+        const y2 = cy + Math.sin(angle) * (r - tickLen);
+  
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = isMajor ? opt.primaryGold : 'rgba(216, 226, 236, 0.3)';
+        ctx.lineWidth = (isMajor ? 1.2 : 0.6) * dpr;
+        ctx.stroke();
+      }
+  
+      // Compass Cardinal Labels (N at top, E at right, S at bottom, W at left)
+      const cardinals = [
+        { label: 'N', az: 0 },
+        { label: 'E', az: 90 },
+        { label: 'S', az: 180 },
+        { label: 'W', az: 270 }
+      ];
+  
+      ctx.font = `600 ${Math.round(9 * dpr)}px "Cinzel", serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+  
+      for (const card of cardinals) {
+        const angle = (card.az - 90.0) * (Math.PI / 180.0);
+        const lx = cx + Math.cos(angle) * (r + 14 * dpr);
+        const ly = cy + Math.sin(angle) * (r + 14 * dpr);
+  
+        ctx.fillStyle = card.label === 'N' ? '#ff6b6b' : opt.primaryGold;
+        ctx.fillText(card.label, lx, ly);
+      }
+    }
+  
+    drawObjectTooltip(ctx, cx, cy, dpr, obj) {
+      const cardW = 160 * dpr;
+      const cardH = 55 * dpr;
+      let cardX = obj.projX + 12 * dpr;
+      let cardY = obj.projY - 25 * dpr;
+  
+      // Boundary containment
+      if (cardX + cardW > this.canvas.width - 10 * dpr) {
+        cardX = obj.projX - cardW - 12 * dpr;
+      }
+      if (cardY < 10 * dpr) {
+        cardY = 10 * dpr;
+      }
+  
+      ctx.save();
+      ctx.fillStyle = 'rgba(9, 11, 18, 0.95)';
+      ctx.strokeStyle = this.options.primaryGold;
+      ctx.lineWidth = 1 * dpr;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowBlur = 10 * dpr;
+  
+      ctx.strokeRect(cardX, cardY, cardW, cardH);
+      ctx.fillRect(cardX, cardY, cardW, cardH);
+  
+      ctx.fillStyle = this.options.goldBright;
+      ctx.font = `600 ${Math.round(8 * dpr)}px "Space Mono", monospace`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(obj.name.toUpperCase(), cardX + 8 * dpr, cardY + 7 * dpr);
+  
+      ctx.fillStyle = 'rgba(216, 226, 236, 0.6)';
+      ctx.font = `${Math.round(6.5 * dpr)}px "Space Mono", monospace`;
+      ctx.fillText(obj.subtitle, cardX + 8 * dpr, cardY + 19 * dpr);
+  
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${Math.round(7 * dpr)}px "Space Mono", monospace`;
+      ctx.fillText(`Alt: ${obj.alt.toFixed(1)}°  Az: ${obj.az.toFixed(1)}°`, cardX + 8 * dpr, cardY + 34 * dpr);
+  
+      ctx.restore();
+    }
+  
+    updateModalInfo(lmstHours) {
+      const infoEl = this.modal.querySelector('#skyDomeInfo');
+      if (infoEl) {
+        const obs = this.currentObserver;
+        const latFmt = `${Math.abs(obs.lat).toFixed(2)}° ${obs.lat >= 0 ? 'N' : 'S'}`;
+        const lonFmt = `${Math.abs(obs.lon).toFixed(2)}° ${obs.lon >= 0 ? 'E' : 'W'}`;
+        const lmstH = Math.floor(lmstHours);
+        const lmstM = Math.floor((lmstHours % 1) * 60);
+        const pad = (n) => String(n).padStart(2, '0');
+  
+        infoEl.innerHTML = `
+          <strong>${obs.name}</strong> [${latFmt}, ${lonFmt}] &bull;
+          LMST: <span class="gold-glow">${pad(lmstH)}:${pad(lmstM)}</span>
+        `;
+      }
+    }
+  }
+  
+
+  // ==========================================
   // Module: src/index.js
   // ==========================================
   /**
@@ -2591,6 +3779,7 @@
    * Orchestrates 60fps astronomical engine loop, high-precision chronometer dial,
    * world solar observatory, lunar complication, celestial telemetry, and time scrubber.
    */
+  
   
   
   
@@ -2632,6 +3821,13 @@
       this.observatorySelect = document.getElementById('observatorySelect');
       this.audioToggleBtn = document.getElementById('audioToggleBtn');
   
+      // 3D globe projection toggle & sky dome buttons
+      this.btnProj2D = document.getElementById('btnProj2D');
+      this.btnProj3D = document.getElementById('btnProj3D');
+      this.btnOpenSkyDome = document.getElementById('btnOpenSkyDome');
+      this.skyDomeModalEl = document.getElementById('skyDomeModal');
+      this.skyDomeCanvas = document.getElementById('skyDomeCanvas');
+  
       // Populate preset observatories in header dropdown
       if (this.observatorySelect) {
         this.observatorySelect.innerHTML = PRESET_OBSERVATORIES.map((obs) => `
@@ -2647,9 +3843,24 @@
       this.telemetryDisplay = new TelemetryDisplay(this.telemetryContainer, this.analemmaCanvas);
       this.timeScrubber = new TimeScrubber(this.scrubberContainer, this.timeController);
   
-      // Sync observer change from map click to select dropdown
+      // Initialize Local Zenith Sky Dome Modal (Planisphere)
+      if (this.skyDomeModalEl && this.skyDomeCanvas) {
+        this.skyDomeModal = new SkyDomeModal(this.skyDomeModalEl, this.skyDomeCanvas);
+      }
+  
+      // Sync observer change from map click to select dropdown & open sky dome
       this.worldObservatory.onObserverChange = (obs) => {
         this.updateObserverDisplay(obs);
+        if (this.skyDomeModal && this.skyDomeModal.isOpen) {
+          this.skyDomeModal.render(this.timeController.getTime(), obs);
+        }
+      };
+  
+      // Open Sky Dome modal when clicking an observatory or location
+      this.worldObservatory.onOpenSkyDome = (obs) => {
+        if (this.skyDomeModal) {
+          this.skyDomeModal.open(obs, this.timeController.getTime());
+        }
       };
     }
   
@@ -2664,11 +3875,38 @@
     }
   
     bindEvents() {
+      // Projection mode toggle (2D Flat vs 3D Orthographic Globe)
+      if (this.btnProj2D && this.btnProj3D) {
+        this.btnProj2D.addEventListener('click', () => {
+          this.worldObservatory.setProjectionMode('equirectangular');
+          this.btnProj2D.classList.add('active');
+          this.btnProj3D.classList.remove('active');
+        });
+  
+        this.btnProj3D.addEventListener('click', () => {
+          this.worldObservatory.setProjectionMode('orthographic');
+          this.btnProj3D.classList.add('active');
+          this.btnProj2D.classList.remove('active');
+        });
+      }
+  
+      // Sky Dome planisphere open button
+      if (this.btnOpenSkyDome) {
+        this.btnOpenSkyDome.addEventListener('click', () => {
+          if (this.skyDomeModal) {
+            this.skyDomeModal.open(this.worldObservatory.observer, this.timeController.getTime());
+          }
+        });
+      }
+  
       // Window resize observer for all canvas instruments
       window.addEventListener('resize', () => {
         this.chronometerDial.resize();
         this.worldObservatory.resize();
         this.lunarComplication.resize();
+        if (this.skyDomeModal) {
+          this.skyDomeModal.resize();
+        }
         this.renderFrame();
       });
   
@@ -2678,6 +3916,8 @@
           const obs = PRESET_OBSERVATORIES.find((o) => o.id === e.target.value);
           if (obs) {
             this.worldObservatory.setObserver(obs.lat, obs.lon, obs.name);
+            this.worldObservatory.globeCenter.lon = obs.lon;
+            this.worldObservatory.globeCenter.lat = Math.max(-60, Math.min(60, obs.lat));
           }
         });
       }
@@ -2689,6 +3929,14 @@
         const latFmt = `${Math.abs(obs.lat).toFixed(2)}° ${obs.lat >= 0 ? 'N' : 'S'}`;
         const lonFmt = `${Math.abs(obs.lon).toFixed(2)}° ${obs.lon >= 0 ? 'E' : 'W'}`;
         coordEl.textContent = `${obs.name} [${latFmt}, ${lonFmt}]`;
+      }
+      if (this.observatorySelect) {
+        const match = PRESET_OBSERVATORIES.find(
+          (o) => Math.abs(o.lat - obs.lat) < 0.1 && Math.abs(o.lon - obs.lon) < 0.1
+        );
+        if (match) {
+          this.observatorySelect.value = match.id;
+        }
       }
     }
   
@@ -2747,7 +3995,12 @@
       // 4. Render Celestial Telemetry & Analemma
       this.telemetryDisplay.render(date, observer);
   
-      // 5. Update Digital Readouts
+      // 5. Render Local Sky Dome if open
+      if (this.skyDomeModal && this.skyDomeModal.isOpen) {
+        this.skyDomeModal.render(date, observer);
+      }
+  
+      // 6. Update Digital Readouts
       const utcDecimalHours =
         date.getUTCHours() +
         date.getUTCMinutes() / 60.0 +

@@ -26,6 +26,41 @@ export const PRESET_EPOCHS = [
   { label: 'Apollo 11 Lunar Landing 1969', iso: '1969-07-20T20:17:40Z' }
 ];
 
+export const MAJOR_CITIES = [
+  { name: 'Tokyo', lat: 35.68, lon: 139.76, weight: 1.0 },
+  { name: 'Seoul', lat: 37.56, lon: 126.97, weight: 0.9 },
+  { name: 'Shanghai', lat: 31.23, lon: 121.47, weight: 1.0 },
+  { name: 'Beijing', lat: 39.90, lon: 116.40, weight: 0.9 },
+  { name: 'Guangzhou', lat: 23.13, lon: 113.26, weight: 0.8 },
+  { name: 'Hong Kong', lat: 22.31, lon: 114.16, weight: 0.8 },
+  { name: 'Singapore', lat: 1.35, lon: 103.82, weight: 0.7 },
+  { name: 'Bangkok', lat: 13.75, lon: 100.50, weight: 0.7 },
+  { name: 'Jakarta', lat: -6.20, lon: 106.84, weight: 0.7 },
+  { name: 'Delhi', lat: 28.61, lon: 77.20, weight: 0.9 },
+  { name: 'Mumbai', lat: 19.07, lon: 72.87, weight: 0.9 },
+  { name: 'Bangalore', lat: 12.97, lon: 77.59, weight: 0.7 },
+  { name: 'Dubai', lat: 25.20, lon: 55.27, weight: 0.8 },
+  { name: 'Cairo', lat: 30.04, lon: 31.23, weight: 0.8 },
+  { name: 'Johannesburg', lat: -26.20, lon: 28.04, weight: 0.7 },
+  { name: 'London', lat: 51.50, lon: -0.12, weight: 1.0 },
+  { name: 'Paris', lat: 48.85, lon: 2.35, weight: 0.9 },
+  { name: 'Berlin', lat: 52.52, lon: 13.40, weight: 0.8 },
+  { name: 'Madrid', lat: 40.41, lon: -3.70, weight: 0.8 },
+  { name: 'Rome', lat: 41.90, lon: 12.49, weight: 0.7 },
+  { name: 'Moscow', lat: 55.75, lon: 37.61, weight: 0.8 },
+  { name: 'Istanbul', lat: 41.00, lon: 28.97, weight: 0.8 },
+  { name: 'New York', lat: 40.71, lon: -74.00, weight: 1.0 },
+  { name: 'Chicago', lat: 41.88, lon: -87.63, weight: 0.8 },
+  { name: 'Los Angeles', lat: 34.05, lon: -118.24, weight: 0.9 },
+  { name: 'San Francisco', lat: 37.77, lon: -122.42, weight: 0.8 },
+  { name: 'Toronto', lat: 43.65, lon: -79.38, weight: 0.7 },
+  { name: 'Mexico City', lat: 19.43, lon: -99.13, weight: 0.8 },
+  { name: 'São Paulo', lat: -23.55, lon: -46.63, weight: 0.9 },
+  { name: 'Buenos Aires', lat: -34.60, lon: -58.38, weight: 0.8 },
+  { name: 'Sydney', lat: -33.86, lon: 151.20, weight: 0.8 },
+  { name: 'Melbourne', lat: -37.81, lon: 144.96, weight: 0.7 }
+];
+
 // Simplified high-fidelity closed polygonal contours for the world's main landmasses:
 // Longitude: -180 to 180, Latitude: -90 to 90.
 export const WORLD_CONTINENTS = [

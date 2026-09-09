@@ -18,6 +18,7 @@ import { LunarComplication } from './ui/lunar-complication.js';
 import { TelemetryDisplay } from './ui/telemetry-display.js';
 import { TimeScrubber } from './ui/time-scrubber.js';
 import { EscapementAudio } from './ui/audio-escapement.js';
+import { SkyDomeModal } from './ui/sky-dome.js';
 
 class MeridianObservatoryApp {
   constructor() {
@@ -49,6 +50,13 @@ class MeridianObservatoryApp {
     this.observatorySelect = document.getElementById('observatorySelect');
     this.audioToggleBtn = document.getElementById('audioToggleBtn');
 
+    // 3D globe projection toggle & sky dome buttons
+    this.btnProj2D = document.getElementById('btnProj2D');
+    this.btnProj3D = document.getElementById('btnProj3D');
+    this.btnOpenSkyDome = document.getElementById('btnOpenSkyDome');
+    this.skyDomeModalEl = document.getElementById('skyDomeModal');
+    this.skyDomeCanvas = document.getElementById('skyDomeCanvas');
+
     // Populate preset observatories in header dropdown
     if (this.observatorySelect) {
       this.observatorySelect.innerHTML = PRESET_OBSERVATORIES.map((obs) => `
@@ -64,9 +72,24 @@ class MeridianObservatoryApp {
     this.telemetryDisplay = new TelemetryDisplay(this.telemetryContainer, this.analemmaCanvas);
     this.timeScrubber = new TimeScrubber(this.scrubberContainer, this.timeController);
 
-    // Sync observer change from map click to select dropdown
+    // Initialize Local Zenith Sky Dome Modal (Planisphere)
+    if (this.skyDomeModalEl && this.skyDomeCanvas) {
+      this.skyDomeModal = new SkyDomeModal(this.skyDomeModalEl, this.skyDomeCanvas);
+    }
+
+    // Sync observer change from map click to select dropdown & open sky dome
     this.worldObservatory.onObserverChange = (obs) => {
       this.updateObserverDisplay(obs);
+      if (this.skyDomeModal && this.skyDomeModal.isOpen) {
+        this.skyDomeModal.render(this.timeController.getTime(), obs);
+      }
+    };
+
+    // Open Sky Dome modal when clicking an observatory or location
+    this.worldObservatory.onOpenSkyDome = (obs) => {
+      if (this.skyDomeModal) {
+        this.skyDomeModal.open(obs, this.timeController.getTime());
+      }
     };
   }
 
@@ -81,11 +104,38 @@ class MeridianObservatoryApp {
   }
 
   bindEvents() {
+    // Projection mode toggle (2D Flat vs 3D Orthographic Globe)
+    if (this.btnProj2D && this.btnProj3D) {
+      this.btnProj2D.addEventListener('click', () => {
+        this.worldObservatory.setProjectionMode('equirectangular');
+        this.btnProj2D.classList.add('active');
+        this.btnProj3D.classList.remove('active');
+      });
+
+      this.btnProj3D.addEventListener('click', () => {
+        this.worldObservatory.setProjectionMode('orthographic');
+        this.btnProj3D.classList.add('active');
+        this.btnProj2D.classList.remove('active');
+      });
+    }
+
+    // Sky Dome planisphere open button
+    if (this.btnOpenSkyDome) {
+      this.btnOpenSkyDome.addEventListener('click', () => {
+        if (this.skyDomeModal) {
+          this.skyDomeModal.open(this.worldObservatory.observer, this.timeController.getTime());
+        }
+      });
+    }
+
     // Window resize observer for all canvas instruments
     window.addEventListener('resize', () => {
       this.chronometerDial.resize();
       this.worldObservatory.resize();
       this.lunarComplication.resize();
+      if (this.skyDomeModal) {
+        this.skyDomeModal.resize();
+      }
       this.renderFrame();
     });
 
@@ -95,6 +145,8 @@ class MeridianObservatoryApp {
         const obs = PRESET_OBSERVATORIES.find((o) => o.id === e.target.value);
         if (obs) {
           this.worldObservatory.setObserver(obs.lat, obs.lon, obs.name);
+          this.worldObservatory.globeCenter.lon = obs.lon;
+          this.worldObservatory.globeCenter.lat = Math.max(-60, Math.min(60, obs.lat));
         }
       });
     }
@@ -106,6 +158,14 @@ class MeridianObservatoryApp {
       const latFmt = `${Math.abs(obs.lat).toFixed(2)}° ${obs.lat >= 0 ? 'N' : 'S'}`;
       const lonFmt = `${Math.abs(obs.lon).toFixed(2)}° ${obs.lon >= 0 ? 'E' : 'W'}`;
       coordEl.textContent = `${obs.name} [${latFmt}, ${lonFmt}]`;
+    }
+    if (this.observatorySelect) {
+      const match = PRESET_OBSERVATORIES.find(
+        (o) => Math.abs(o.lat - obs.lat) < 0.1 && Math.abs(o.lon - obs.lon) < 0.1
+      );
+      if (match) {
+        this.observatorySelect.value = match.id;
+      }
     }
   }
 
@@ -164,7 +224,12 @@ class MeridianObservatoryApp {
     // 4. Render Celestial Telemetry & Analemma
     this.telemetryDisplay.render(date, observer);
 
-    // 5. Update Digital Readouts
+    // 5. Render Local Sky Dome if open
+    if (this.skyDomeModal && this.skyDomeModal.isOpen) {
+      this.skyDomeModal.render(date, observer);
+    }
+
+    // 6. Update Digital Readouts
     const utcDecimalHours =
       date.getUTCHours() +
       date.getUTCMinutes() / 60.0 +

@@ -402,3 +402,224 @@ export function getNightShadowPolygon(date, numSteps = 360) {
 
   return polygon;
 }
+
+/**
+ * Converts Equatorial Coordinates (RA in hours, Dec in degrees) to
+ * Horizontal Coordinates (Altitude and Azimuth in degrees).
+ * Azimuth convention: 0° North, 90° East, 180° South, 270° West.
+ */
+export function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
+  // Hour Angle in radians [-PI, PI]
+  let hDeg = (lmstHours - raHours) * 15.0;
+  while (hDeg > 180.0) hDeg -= 360.0;
+  while (hDeg < -180.0) hDeg += 360.0;
+  const hRad = hDeg * DEG2RAD;
+
+  const phiRad = latDeg * DEG2RAD;
+  const deltaRad = decDeg * DEG2RAD;
+
+  // Altitude
+  const sinAlt =
+    Math.sin(phiRad) * Math.sin(deltaRad) +
+    Math.cos(phiRad) * Math.cos(deltaRad) * Math.cos(hRad);
+  const clampedSinAlt = Math.max(-1.0, Math.min(1.0, sinAlt));
+  const altRad = Math.asin(clampedSinAlt);
+  const altDeg = altRad * RAD2DEG;
+  const cosAlt = Math.cos(altRad);
+
+  // Azimuth
+  let azDeg = 0;
+  if (cosAlt > 1e-6) {
+    const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
+    const cosAz =
+      (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
+      (Math.cos(phiRad) * cosAlt);
+    azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
+    azDeg = (azDeg + 360.0) % 360.0;
+  }
+
+  return {
+    altitudeDeg: altDeg,
+    azimuthDeg: azDeg,
+    isVisible: altDeg > 0
+  };
+}
+
+/**
+ * Projects a 3D spherical coordinate (lonDeg, latDeg) onto a 2D Orthographic Globe.
+ * Returns { x, y, visible, cosC }.
+ * x is right (+), y is down (+) to match canvas space.
+ */
+export function projectOrthographic(lonDeg, latDeg, centerLonDeg, centerLatDeg, radius) {
+  let dLonDeg = lonDeg - centerLonDeg;
+  while (dLonDeg > 180.0) dLonDeg -= 360.0;
+  while (dLonDeg < -180.0) dLonDeg += 360.0;
+
+  const dLam = dLonDeg * DEG2RAD;
+  const phi = latDeg * DEG2RAD;
+  const phi0 = centerLatDeg * DEG2RAD;
+
+  const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(dLam);
+  const visible = cosC >= 0;
+
+  // Screen coordinates relative to globe center:
+  const x = radius * Math.cos(phi) * Math.sin(dLam);
+  const y = -radius * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
+
+  return { x, y, visible, cosC };
+}
+
+/**
+ * Inverse raycasting: maps a 2D screen coordinate (x, y) relative to globe center
+ * back to 3D geographic coordinates (lon, lat).
+ * Returns { hit: boolean, lon: number|null, lat: number|null }.
+ */
+export function unprojectOrthographic(x, y, centerLonDeg, centerLatDeg, radius) {
+  const rho = Math.sqrt(x * x + y * y);
+  if (rho > radius) {
+    return { hit: false, lon: null, lat: null };
+  }
+  if (rho < 1e-6) {
+    return { hit: true, lon: centerLonDeg, lat: centerLatDeg };
+  }
+
+  const c = Math.asin(rho / radius);
+  const sinC = Math.sin(c);
+  const cosC = Math.cos(c);
+  const phi0 = centerLatDeg * DEG2RAD;
+  const sinPhi0 = Math.sin(phi0);
+  const cosPhi0 = Math.cos(phi0);
+
+  // In screen space y is down (+), so Cartesian Y on sphere is -y
+  const py = -y;
+
+  const sinPhi = cosC * sinPhi0 + (py * sinC * cosPhi0) / rho;
+  const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
+  const lat = Math.asin(clampedSinPhi) * RAD2DEG;
+
+  const numY = x * sinC;
+  const denX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
+  const dLam = Math.atan2(numY, denX) * RAD2DEG;
+
+  let lon = centerLonDeg + dLam;
+  while (lon > 180.0) lon -= 360.0;
+  while (lon < -180.0) lon += 360.0;
+
+  return { hit: true, lon, lat };
+}
+
+/**
+ * Keplerian planetary ephemeris (Venus, Mars, Jupiter).
+ * Computes instantaneous geocentric Right Ascension and Declination.
+ */
+export function getPlanetaryPositions(date) {
+  const jd = getJulianDate(date);
+  const T = getJulianCenturies(jd);
+
+  // Mean obliquity of ecliptic
+  const eps = (23.439291 - 0.0130042 * T) * DEG2RAD;
+
+  // Heliocentric coordinates helper
+  function getHeliocentric(a, e0, edot, I0, Idot, L0, Ldot, varpi0, varpidot, Omega0, Omegadot) {
+    const e = e0 + edot * T;
+    const I = (I0 + Idot * T) * DEG2RAD;
+    const L = normalizeDegrees(L0 + Ldot * T);
+    const varpi = normalizeDegrees(varpi0 + varpidot * T);
+    const Omega = normalizeDegrees(Omega0 + Omegadot * T) * DEG2RAD;
+
+    // Mean anomaly
+    const M = normalizeDegrees(L - varpi) * DEG2RAD;
+
+    // Equation of center (2-term approximation)
+    const nu = M + (2 * e - 0.25 * e ** 3) * Math.sin(M) + 1.25 * e ** 2 * Math.sin(2 * M);
+    const r = (a * (1 - e * e)) / (1 + e * Math.cos(nu));
+
+    const u = nu + (varpi * DEG2RAD - Omega);
+    const xNode = r * Math.cos(u);
+    const yNode = r * Math.sin(u);
+
+    // Heliocentric coordinates
+    const X = xNode * Math.cos(Omega) - yNode * Math.sin(Omega) * Math.cos(I);
+    const Y = xNode * Math.sin(Omega) + yNode * Math.cos(Omega) * Math.cos(I);
+    const Z = yNode * Math.sin(I);
+
+    return { X, Y, Z };
+  }
+
+  // Earth
+  const earth = getHeliocentric(
+    1.00000261, 0.01671123, -0.00004392,
+    0.00005, -0.013, 100.464571, 36000.769828,
+    102.937681, 0.317952, 0.0, 0.0
+  );
+
+  // Venus
+  const venus = getHeliocentric(
+    0.72333566, 0.00677672, -0.00004107,
+    3.394676, -0.000789, 181.979099, 58517.815387,
+    131.602467, 0.002683, 76.679843, -0.277694
+  );
+
+  // Mars
+  const mars = getHeliocentric(
+    1.52371034, 0.09339410, 0.00007882,
+    1.849691, -0.008131, -4.553432, 19140.302685,
+    -23.943629, 0.444411, 49.559538, -0.292573
+  );
+
+  // Jupiter
+  const jupiter = getHeliocentric(
+    5.202887, 0.04838624, -0.00013253,
+    1.304396, -0.001837, 34.396441, 3034.746128,
+    14.728479, 0.212527, 100.473909, 0.204691
+  );
+
+  function toEquatorial(planet, name, color, symbol, mag) {
+    // Geocentric coordinates
+    const Xg = planet.X - earth.X;
+    const Yg = planet.Y - earth.Y;
+    const Zg = planet.Z - earth.Z;
+
+    // Rotate by ecliptic obliquity to equatorial coordinates
+    const Xeq = Xg;
+    const Yeq = Yg * Math.cos(eps) - Zg * Math.sin(eps);
+    const Zeq = Yg * Math.sin(eps) + Zg * Math.cos(eps);
+
+    let raDeg = Math.atan2(Yeq, Xeq) * RAD2DEG;
+    raDeg = normalizeDegrees(raDeg);
+    const dist = Math.sqrt(Xeq * Xeq + Yeq * Yeq + Zeq * Zeq);
+    const decDeg = Math.asin(Math.max(-1, Math.min(1, Zeq / dist))) * RAD2DEG;
+
+    return {
+      name,
+      symbol,
+      color,
+      magnitude: mag,
+      raHours: raDeg / 15.0,
+      decDeg,
+      distAU: dist
+    };
+  }
+
+  return {
+    venus: toEquatorial(venus, 'Venus', '#ffd480', '♀', -4.2),
+    mars: toEquatorial(mars, 'Mars', '#ff6b4a', '♂', -1.5),
+    jupiter: toEquatorial(jupiter, 'Jupiter', '#e0cda9', '♃', -2.4)
+  };
+}
+
+/**
+ * Standard Catalog of Bright Primary Navigation & Alignment Stars (J2000.0)
+ */
+export const BRIGHT_STARS = [
+  { name: 'Polaris', bayer: 'α UMi', const: 'Ursa Minor', raHours: 2.530, decDeg: 89.264, mag: 1.98, color: '#fbfcfd' },
+  { name: 'Sirius', bayer: 'α CMa', const: 'Canis Major', raHours: 6.752, decDeg: -16.716, mag: -1.46, color: '#a6c8ff' },
+  { name: 'Vega', bayer: 'α Lyr', const: 'Lyra', raHours: 18.616, decDeg: 38.784, mag: 0.03, color: '#cadcff' },
+  { name: 'Betelgeuse', bayer: 'α Ori', const: 'Orion', raHours: 5.919, decDeg: 7.407, mag: 0.50, color: '#ff9468' },
+  { name: 'Rigel', bayer: 'β Ori', const: 'Orion', raHours: 5.242, decDeg: -8.201, mag: 0.18, color: '#bad2ff' },
+  { name: 'Arcturus', bayer: 'α Boo', const: 'Boötes', raHours: 14.261, decDeg: 19.182, mag: -0.05, color: '#ffcd85' },
+  { name: 'Capella', bayer: 'α Aur', const: 'Auriga', raHours: 5.278, decDeg: 45.998, mag: 0.08, color: '#fff29e' },
+  { name: 'Aldebaran', bayer: 'α Tau', const: 'Taurus', raHours: 4.599, decDeg: 16.509, mag: 0.85, color: '#ffaa66' },
+  { name: 'Antares', bayer: 'α Sco', const: 'Scorpius', raHours: 16.490, decDeg: -26.432, mag: 1.06, color: '#ff7755' },
+  { name: 'Spica', bayer: 'α Vir', const: 'Virgo', raHours: 13.420, decDeg: -11.161, mag: 0.98, color: '#b5d0ff' }
+];

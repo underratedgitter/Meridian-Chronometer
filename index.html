@@ -74,8 +74,17 @@
 
       <!-- Instrument 2: World Solar Observatory Map -->
       <section class="instrument-card observatory-module" aria-label="World Solar Observatory">
-        <div class="card-header">
-          <h2 class="card-title">World Solar Observatory</h2>
+        <div class="card-header observatory-card-header">
+          <div class="observatory-header-left">
+            <h2 class="card-title">World Solar Observatory</h2>
+            <div class="projection-toggle-group" role="group" aria-label="Globe Projection Mode">
+              <button id="btnProj2D" class="proj-toggle-btn active" type="button" title="2D Equirectangular Flat Map">2D FLAT</button>
+              <button id="btnProj3D" class="proj-toggle-btn" type="button" title="3D Orthographic Spherical Globe">3D GLOBE</button>
+            </div>
+            <button id="btnOpenSkyDome" class="sky-dome-btn" type="button" title="Open Local Zenith Sky Dome (Planisphere)">
+              <span class="sky-dome-btn-icon">✦</span> SKY DOME
+            </button>
+          </div>
           <span class="card-spec" id="activeObserverCoords">Royal Observatory Greenwich [51.48° N, 0.00° E]</span>
         </div>
         <div class="card-body">
@@ -140,6 +149,34 @@
     </section>
 
   </main>
+
+  <!-- Observatory Zenith Sky Dome (Planisphere Modal) -->
+  <div id="skyDomeModal" class="sky-dome-modal" aria-hidden="true" role="dialog" aria-label="Observatory Zenith Sky Dome Planisphere">
+    <div class="sky-dome-dialog">
+      <div class="sky-dome-header">
+        <div class="sky-dome-title-wrap">
+          <div class="sky-dome-badge">PLANISPHERE // HORIZONTAL STEREOGRAPHIC</div>
+          <h2 class="sky-dome-title">Observatory Zenith Sky Dome</h2>
+          <div id="skyDomeInfo" class="sky-dome-info">
+            <!-- Populated dynamically by SkyDomeModal -->
+          </div>
+        </div>
+        <button class="modal-close-btn" aria-label="Close Sky Dome Modal" type="button">&times;</button>
+      </div>
+      <div class="sky-dome-body">
+        <div class="sky-dome-canvas-wrap">
+          <canvas id="skyDomeCanvas" width="460" height="460" aria-label="Local Planisphere Sky Dome with Stars and Planets"></canvas>
+        </div>
+        <div class="sky-dome-legend">
+          <div class="legend-item"><span class="legend-pip star-pip"></span> Navigation Stars</div>
+          <div class="legend-item"><span class="legend-pip planet-pip"></span> Classical Planets</div>
+          <div class="legend-item"><span class="legend-pip sun-pip"></span> Sun &bull; Moon</div>
+          <div class="legend-item"><span class="legend-pip meridian-pip"></span> Celestial Meridian</div>
+          <div class="legend-item"><span class="legend-pip zenith-pip"></span> Zenith Reticle [90°]</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Observatory Footer -->
   <footer class="observatory-footer">
