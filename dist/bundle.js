@@ -2998,7 +2998,7 @@
       const h = String(date.getUTCHours()).padStart(2, '0');
       const m = String(date.getUTCMinutes()).padStart(2, '0');
       const s = String(date.getUTCSeconds()).padStart(2, '0');
-      return `${h}:${m}:${s} <small>UTC</small>`;
+      return `${h}:${m}:${s}`;
     }
   
     formatEoT(minutes) {
@@ -3029,7 +3029,7 @@
                 <span class="icon">☀️</span> SOLAR MERIDIAN TRANSIT
               </div>
               <div class="telemetry-card-main">
-                <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))}</span>
+                <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))} <small>UTC</small></span>
               </div>
               <div class="telemetry-subdata">
                 <div>Transit Altitude: <strong>${escapeHTML(telemetry.solarElevationAtNoonDeg.toFixed(1))}°</strong></div>
@@ -3044,11 +3044,11 @@
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Sunrise</span>
-                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))}</span>
+                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))} <small>UTC</small></span>
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Sunset</span>
-                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))}</span>
+                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))} <small>UTC</small></span>
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Day Length</span>
@@ -4125,6 +4125,39 @@
           }
         });
       }
+  
+      // Keyboard shortcuts & hotkey interactions:
+      // 'g' or 'm': toggle 2D Flat vs 3D Globe camera projection mode
+      // 'd': toggle Local Zenith Sky Dome modal
+      // 'a': toggle mechanical escapement audio
+      window.addEventListener('keydown', (e) => {
+        const tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  
+        if (e.code === 'KeyG' || e.code === 'KeyM') {
+          e.preventDefault();
+          const nextMode = this.worldObservatory.projectionMode === 'orthographic' ? 'equirectangular' : 'orthographic';
+          this.worldObservatory.setProjectionMode(nextMode);
+          if (this.btnProj2D && this.btnProj3D) {
+            this.btnProj2D.classList.toggle('active', nextMode === 'equirectangular');
+            this.btnProj3D.classList.toggle('active', nextMode === 'orthographic');
+          }
+        } else if (e.code === 'KeyD') {
+          e.preventDefault();
+          if (this.skyDomeModal) {
+            if (this.skyDomeModal.isOpen) {
+              this.skyDomeModal.close();
+            } else {
+              this.skyDomeModal.open(this.worldObservatory.observer, this.timeController.getTime());
+            }
+          }
+        } else if (e.code === 'KeyA') {
+          e.preventDefault();
+          if (this.audioToggleBtn) {
+            this.audioToggleBtn.click();
+          }
+        }
+      });
     }
   
     updateObserverDisplay(obs) {

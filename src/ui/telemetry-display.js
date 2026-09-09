@@ -50,7 +50,7 @@ export class TelemetryDisplay {
     const h = String(date.getUTCHours()).padStart(2, '0');
     const m = String(date.getUTCMinutes()).padStart(2, '0');
     const s = String(date.getUTCSeconds()).padStart(2, '0');
-    return `${h}:${m}:${s} <small>UTC</small>`;
+    return `${h}:${m}:${s}`;
   }
 
   formatEoT(minutes) {
@@ -81,7 +81,7 @@ export class TelemetryDisplay {
               <span class="icon">☀️</span> SOLAR MERIDIAN TRANSIT
             </div>
             <div class="telemetry-card-main">
-              <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))}</span>
+              <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))} <small>UTC</small></span>
             </div>
             <div class="telemetry-subdata">
               <div>Transit Altitude: <strong>${escapeHTML(telemetry.solarElevationAtNoonDeg.toFixed(1))}°</strong></div>
@@ -96,11 +96,11 @@ export class TelemetryDisplay {
             </div>
             <div class="telemetry-row">
               <span class="field-label">Sunrise</span>
-              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))}</span>
+              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))} <small>UTC</small></span>
             </div>
             <div class="telemetry-row">
               <span class="field-label">Sunset</span>
-              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))}</span>
+              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))} <small>UTC</small></span>
             </div>
             <div class="telemetry-row">
               <span class="field-label">Day Length</span>

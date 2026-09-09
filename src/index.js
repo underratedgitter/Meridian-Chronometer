@@ -151,6 +151,39 @@ class MeridianObservatoryApp {
         }
       });
     }
+
+    // Keyboard shortcuts & hotkey interactions:
+    // 'g' or 'm': toggle 2D Flat vs 3D Globe camera projection mode
+    // 'd': toggle Local Zenith Sky Dome modal
+    // 'a': toggle mechanical escapement audio
+    window.addEventListener('keydown', (e) => {
+      const tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+
+      if (e.code === 'KeyG' || e.code === 'KeyM') {
+        e.preventDefault();
+        const nextMode = this.worldObservatory.projectionMode === 'orthographic' ? 'equirectangular' : 'orthographic';
+        this.worldObservatory.setProjectionMode(nextMode);
+        if (this.btnProj2D && this.btnProj3D) {
+          this.btnProj2D.classList.toggle('active', nextMode === 'equirectangular');
+          this.btnProj3D.classList.toggle('active', nextMode === 'orthographic');
+        }
+      } else if (e.code === 'KeyD') {
+        e.preventDefault();
+        if (this.skyDomeModal) {
+          if (this.skyDomeModal.isOpen) {
+            this.skyDomeModal.close();
+          } else {
+            this.skyDomeModal.open(this.worldObservatory.observer, this.timeController.getTime());
+          }
+        }
+      } else if (e.code === 'KeyA') {
+        e.preventDefault();
+        if (this.audioToggleBtn) {
+          this.audioToggleBtn.click();
+        }
+      }
+    });
   }
 
   updateObserverDisplay(obs) {

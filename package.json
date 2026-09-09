@@ -6,6 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "test:e2e": "playwright test",
     "start": "node server.js"
   },
   "keywords": [
@@ -17,5 +18,8 @@
     "equation-of-time"
   ],
   "author": "Antigravity",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
 }
