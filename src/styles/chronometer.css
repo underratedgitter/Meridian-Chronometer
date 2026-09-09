@@ -997,12 +997,30 @@ body {
 
 .standards-badge {
   display: flex;
+  align-items: center;
   gap: 1rem;
 }
 
 .standards-badge span {
   border-left: 1px solid rgba(216, 226, 236, 0.15);
   padding-left: 0.75rem;
+}
+
+.eco-badge {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--gold-bright);
+  background: rgba(200, 170, 110, 0.15);
+  border: 1px solid rgba(200, 170, 110, 0.4) !important;
+  padding: 1px 6px !important;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.eco-badge.active {
+  display: inline-block;
 }
 
 /* ==========================================================================

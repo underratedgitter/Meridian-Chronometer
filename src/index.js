@@ -28,6 +28,12 @@ class MeridianObservatoryApp {
     this.lastFrameTime = performance.now();
     this.lastTickSecond = -1;
 
+    // Performance telemetry & low-end device adaptive fallback (<30 FPS)
+    this.frameCount = 0;
+    this.fpsHistory = [];
+    this.currentFps = 60;
+    this.isLowPowerMode = false;
+
     this.initDOM();
     this.initInstruments();
     this.initAudio();
@@ -203,10 +209,58 @@ class MeridianObservatoryApp {
     }
   }
 
+  setLowPowerMode(enabled) {
+    this.isLowPowerMode = Boolean(enabled);
+    if (this.worldObservatory && typeof this.worldObservatory.setLowPowerMode === 'function') {
+      this.worldObservatory.setLowPowerMode(this.isLowPowerMode);
+    }
+    if (this.chronometerDial && typeof this.chronometerDial.setLowPowerMode === 'function') {
+      this.chronometerDial.setLowPowerMode(this.isLowPowerMode);
+    }
+    if (this.telemetryDisplay && typeof this.telemetryDisplay.setLowPowerMode === 'function') {
+      this.telemetryDisplay.setLowPowerMode(this.isLowPowerMode);
+    }
+
+    const badge = document.getElementById('ecoModeBadge');
+    if (this.isLowPowerMode) {
+      if (badge) {
+        badge.classList.add('active');
+        badge.style.display = 'inline-block';
+      }
+      console.info(`[Meridian] Low-power adaptive mode engaged (${this.currentFps} FPS). Throttling decorative passes to preserve smooth interaction.`);
+    } else if (badge) {
+      badge.classList.remove('active');
+      badge.style.display = 'none';
+    }
+  }
+
   startLoop() {
     const loop = (currentTimestamp) => {
       const deltaMs = Math.min(100, currentTimestamp - this.lastFrameTime);
       this.lastFrameTime = currentTimestamp;
+
+      // Track instantaneous FPS and sliding window average
+      if (deltaMs > 0) {
+        const instantFps = 1000 / deltaMs;
+        this.fpsHistory.push(instantFps);
+        if (this.fpsHistory.length > 45) {
+          this.fpsHistory.shift();
+        }
+
+        this.frameCount++;
+        // Every 30 frames (0.5s at 60fps), evaluate device performance
+        if (this.frameCount > 45 && this.frameCount % 30 === 0) {
+          const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+          this.currentFps = Math.round(avgFps);
+
+          // Low-end device fallback: engage if average FPS drops below 30
+          if (!this.isLowPowerMode && avgFps < 30) {
+            this.setLowPowerMode(true);
+          } else if (this.isLowPowerMode && avgFps >= 48) {
+            this.setLowPowerMode(false);
+          }
+        }
+      }
 
       // Advance chronometer simulation
       this.timeController.tick(deltaMs);
@@ -242,6 +296,10 @@ class MeridianObservatoryApp {
     const solarTime = getLocalSolarTime(date, observer.lon);
     const siderealHours = getLMST(date, observer.lon);
 
+    // In low-power mode, throttle secondary decorative instruments (analemma & lunar)
+    // to every 3rd frame (~20Hz) while maintaining smooth dial and globe updates
+    const skipSecondaryPass = this.isLowPowerMode && (this.frameCount % 3 !== 0);
+
     // 1. Render Main Chronometer Dial
     this.chronometerDial.render({
       utcDate: date,
@@ -253,10 +311,14 @@ class MeridianObservatoryApp {
     this.worldObservatory.render(date);
 
     // 3. Render Lunar Complication
-    this.lunarComplication.render(date);
+    if (!skipSecondaryPass) {
+      this.lunarComplication.render(date);
+    }
 
     // 4. Render Celestial Telemetry & Analemma
-    this.telemetryDisplay.render(date, observer);
+    if (!skipSecondaryPass) {
+      this.telemetryDisplay.render(date, observer);
+    }
 
     // 5. Render Local Sky Dome if open
     if (this.skyDomeModal && this.skyDomeModal.isOpen) {

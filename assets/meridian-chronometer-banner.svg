@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#0e172a"/>
+      <stop offset="45%" stop-color="#080c18"/>
+      <stop offset="100%" stop-color="#03050c"/>
+    </radialGradient>
+    <radialGradient id="dialGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#c8aa6e" stop-opacity="0.3"/>
+      <stop offset="60%" stop-color="#00e5ff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c8aa6e" stop-opacity="0"/>
+      <stop offset="25%" stop-color="#c8aa6e" stop-opacity="0.9"/>
+      <stop offset="75%" stop-color="#00e5ff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#c8aa6e" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="vernierGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(200, 170, 110, 0.05)" stroke-width="1"/>
+      <circle cx="20" cy="20" r="1" fill="rgba(0, 229, 255, 0.1)"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="440" fill="url(#bgGlow)"/>
+  <rect width="1200" height="440" fill="url(#vernierGrid)"/>
+
+  <rect x="16" y="16" width="1168" height="408" rx="8" fill="none" stroke="rgba(200, 170, 110, 0.25)" stroke-width="1.2"/>
+  <rect x="24" y="24" width="1152" height="392" rx="6" fill="none" stroke="rgba(255, 255, 255, 0.04)" stroke-width="1"/>
+
+  <path d="M 12 40 L 12 12 L 40 12" fill="none" stroke="#c8aa6e" stroke-width="2.5"/>
+  <path d="M 1188 40 L 1188 12 L 1160 12" fill="none" stroke="#c8aa6e" stroke-width="2.5"/>
+  <path d="M 12 400 L 12 428 L 40 428" fill="none" stroke="#c8aa6e" stroke-width="2.5"/>
+  <path d="M 1188 400 L 1188 428 L 1160 428" fill="none" stroke="#c8aa6e" stroke-width="2.5"/>
+
+  <g transform="translate(48, 48)">
+    <rect x="0" y="0" width="1104" height="30" rx="4" fill="rgba(8, 14, 28, 0.75)" stroke="rgba(200, 170, 110, 0.25)" stroke-width="1"/>
+    <circle cx="16" cy="15" r="3.5" fill="#c8aa6e"/>
+    <text x="30" y="19" font-family="'Space Mono', monospace" font-size="11" font-weight="700" fill="#c8aa6e" letter-spacing="2">SWISS HOROLOGY &amp; AEROSPACE OBSERVATORY SPECIFICATION</text>
+    <text x="800" y="19" font-family="'Space Mono', monospace" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1.2">PRECISION: <tspan fill="#10b981">IAU/JPL EPHEMERIS</tspan> | CLOCK: <tspan fill="#00e5ff">60 FPS RETINA</tspan></text>
+  </g>
+
+  <g transform="translate(980, 240)">
+    <circle cx="0" cy="0" r="170" fill="url(#dialGlow)"/>
+    <circle cx="0" cy="0" r="145" fill="none" stroke="rgba(200, 170, 110, 0.2)" stroke-width="2"/>
+    <circle cx="0" cy="0" r="135" fill="none" stroke="rgba(0, 229, 255, 0.15)" stroke-width="1" stroke-dasharray="3, 5"/>
+    <circle cx="0" cy="0" r="120" fill="rgba(8, 12, 22, 0.9)" stroke="rgba(200, 170, 110, 0.4)" stroke-width="1.5"/>
+
+    <g stroke="rgba(200, 170, 110, 0.5)" stroke-width="1.5">
+      <line x1="0" y1="-120" x2="0" y2="-106" stroke="#c8aa6e" stroke-width="2.5"/>
+      <line x1="120" y1="0" x2="106" y2="0" stroke="#c8aa6e" stroke-width="2.5"/>
+      <line x1="0" y1="120" x2="0" y2="106" stroke="#c8aa6e" stroke-width="2.5"/>
+      <line x1="-120" y1="0" x2="-106" y2="0" stroke="#c8aa6e" stroke-width="2.5"/>
+
+      <line x1="60" y1="-103.9" x2="52" y2="-90"/>
+      <line x1="103.9" y1="-60" x2="90" y2="-52"/>
+      <line x1="103.9" y1="60" x2="90" y2="52"/>
+      <line x1="60" y1="103.9" x2="52" y2="90"/>
+      <line x1="-60" y1="103.9" x2="-52" y2="90"/>
+      <line x1="-103.9" y1="60" x2="-90" y2="52"/>
+      <line x1="-103.9" y1="-60" x2="-90" y2="-52"/>
+      <line x1="-60" y1="-103.9" x2="-52" y2="-90"/>
+    </g>
+
+    <circle cx="0" cy="0" r="92" fill="none" stroke="rgba(255, 255, 255, 0.06)" stroke-width="8"/>
+    <circle cx="0" cy="0" r="92" fill="none" stroke="#c8aa6e" stroke-width="8" stroke-dasharray="433.5, 578" stroke-dashoffset="144" stroke-linecap="round"/>
+
+    <circle cx="0" cy="0" r="62" fill="rgba(4, 6, 14, 0.95)" stroke="rgba(0, 229, 255, 0.3)" stroke-width="1.2"/>
+    <circle cx="0" cy="0" r="48" fill="none" stroke="rgba(200, 170, 110, 0.25)" stroke-width="1" stroke-dasharray="2, 4"/>
+
+    <line x1="0" y1="0" x2="-35" y2="-20" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+    <line x1="0" y1="0" x2="48" y2="-62" stroke="#c8aa6e" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="48" cy="-62" r="3" fill="#c8aa6e"/>
+    <circle cx="0" cy="0" r="6" fill="#03050c" stroke="#c8aa6e" stroke-width="2"/>
+    <circle cx="0" cy="0" r="2.5" fill="#00e5ff"/>
+
+    <text x="0" y="32" font-family="'Space Mono', monospace" font-size="9" font-weight="700" fill="#c8aa6e" text-anchor="middle" letter-spacing="1">TRIPLE 24H</text>
+    <text x="0" y="-36" font-family="'Space Mono', monospace" font-size="8" font-weight="600" fill="#64748b" text-anchor="middle" letter-spacing="1">HAUTE HORLOGERIE</text>
+  </g>
+
+  <g transform="translate(68, 120)">
+    <rect x="0" y="0" width="180" height="24" rx="4" fill="rgba(200, 170, 110, 0.12)" stroke="rgba(200, 170, 110, 0.4)" stroke-width="1"/>
+    <text x="90" y="16" font-family="'Space Mono', monospace" font-size="10" font-weight="700" fill="#c8aa6e" text-anchor="middle" letter-spacing="1.8">ASTRONOMICAL HOROLOGY</text>
+
+    <text x="0" y="72" font-family="'Cinzel', serif, system-ui" font-size="44" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
+      MERIDIAN <tspan fill="#c8aa6e">CHRONOMETER</tspan>
+    </text>
+
+    <text x="0" y="112" font-family="'Inter', sans-serif" font-size="17" font-weight="400" fill="#cbd5e1" letter-spacing="0.2">
+      Haute Horlogerie Luxury Astronomical Chronometer &amp; World Solar Observatory
+    </text>
+    <text x="0" y="136" font-family="'Space Mono', monospace" font-size="12.5" font-weight="400" fill="#94a3b8" letter-spacing="0.5">
+      Fusing A. Lange &amp; Söhne mechanical craft with IAU / NASA JPL celestial mechanics.
+    </text>
+
+    <g transform="translate(0, 172)">
+      <g transform="translate(0, 0)">
+        <rect x="0" y="0" width="164" height="42" rx="6" fill="rgba(12, 18, 32, 0.85)" stroke="rgba(200, 170, 110, 0.3)" stroke-width="1"/>
+        <text x="12" y="16" font-family="'Space Mono', monospace" font-size="8.5" font-weight="600" fill="#64748b" letter-spacing="1">CELESTIAL HARMONICS</text>
+        <text x="12" y="33" font-family="'Space Mono', monospace" font-size="13" font-weight="800" fill="#c8aa6e" letter-spacing="0.5">TRIPLE MERIDIAN</text>
+      </g>
+      <g transform="translate(176, 0)">
+        <rect x="0" y="0" width="164" height="42" rx="6" fill="rgba(12, 18, 32, 0.85)" stroke="rgba(200, 170, 110, 0.3)" stroke-width="1"/>
+        <text x="12" y="16" font-family="'Space Mono', monospace" font-size="8.5" font-weight="600" fill="#64748b" letter-spacing="1">SOLAR TERMINATOR</text>
+        <text x="12" y="33" font-family="'Space Mono', monospace" font-size="13" font-weight="800" fill="#00e5ff" letter-spacing="0.5">5 TWILIGHT BANDS</text>
+      </g>
+      <g transform="translate(352, 0)">
+        <rect x="0" y="0" width="164" height="42" rx="6" fill="rgba(12, 18, 32, 0.85)" stroke="rgba(200, 170, 110, 0.3)" stroke-width="1"/>
+        <text x="12" y="16" font-family="'Space Mono', monospace" font-size="8.5" font-weight="600" fill="#64748b" letter-spacing="1">LUNAR COMPLICATION</text>
+        <text x="12" y="33" font-family="'Space Mono', monospace" font-size="13" font-weight="800" fill="#e2e8f0" letter-spacing="0.5">3D MARIA SPHERE</text>
+      </g>
+      <g transform="translate(528, 0)">
+        <rect x="0" y="0" width="164" height="42" rx="6" fill="rgba(12, 18, 32, 0.85)" stroke="rgba(200, 170, 110, 0.3)" stroke-width="1"/>
+        <text x="12" y="16" font-family="'Space Mono', monospace" font-size="8.5" font-weight="600" fill="#64748b" letter-spacing="1">TEMPORAL ENGINE</text>
+        <text x="12" y="33" font-family="'Space Mono', monospace" font-size="13" font-weight="800" fill="#10b981" letter-spacing="0.5">86,400x WARP</text>
+      </g>
+    </g>
+  </g>
+
+  <line x1="48" y1="392" x2="1152" y2="392" stroke="url(#goldLine)" stroke-width="1.5"/>
+</svg>

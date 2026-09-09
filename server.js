@@ -2,10 +2,50 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 export const PROJECT_ROOT = path.resolve(__dirname);
+
+// In-memory hot asset cache for sub-millisecond serving under 1,000+ concurrent connections
+export const ASSET_CACHE = new Map();
+const COMPRESSIBLE_EXTS = new Set(['.html', '.js', '.css', '.json', '.svg', '.map']);
+
+export function getCachedAsset(filePath, stats) {
+  const cached = ASSET_CACHE.get(filePath);
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached;
+  }
+
+  const rawBuffer = fs.readFileSync(filePath);
+  const hash = crypto.createHash('md5').update(rawBuffer).digest('hex').slice(0, 16);
+  const etag = `W/"${stats.size.toString(16)}-${hash}"`;
+  const ext = path.extname(filePath).toLowerCase();
+
+  let gzipBuffer = null;
+  if (COMPRESSIBLE_EXTS.has(ext) && rawBuffer.length > 128) {
+    try {
+      gzipBuffer = zlib.gzipSync(rawBuffer, { level: 6 });
+    } catch {}
+  }
+
+  const record = {
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
+    rawBuffer,
+    etag,
+    gzipBuffer
+  };
+
+  ASSET_CACHE.set(filePath, record);
+  return record;
+}
+
+export function clearAssetCache() {
+  ASSET_CACHE.clear();
+}
 
 export const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';",
@@ -181,13 +221,45 @@ export function handleRequest(req, res) {
     return;
   }
 
-  // 9. Response Headers
+  // 9. In-Memory Hot Cache & ETag Computation
+  const asset = getCachedAsset(resolvedPath, stats);
+
+  // Cache-Control: immutable long-term caching for static modules, revalidation for HTML
+  const isHtml = ext === '.html';
+  const cacheControl = isHtml
+    ? 'no-cache'
+    : 'public, max-age=31536000, immutable';
+
+  // 10. Conditional ETag Validation (304 Not Modified)
+  const clientEtag = req.headers['if-none-match'];
+  if (clientEtag && clientEtag === asset.etag) {
+    res.writeHead(304, {
+      'ETag': asset.etag,
+      'Cache-Control': cacheControl,
+      'Vary': 'Accept-Encoding',
+      ...SECURITY_HEADERS
+    });
+    res.end();
+    return;
+  }
+
+  // 11. Content Compression (Gzip)
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  const canGzip = Boolean(asset.gzipBuffer && acceptEncoding.includes('gzip'));
+  const responsePayload = canGzip ? asset.gzipBuffer : asset.rawBuffer;
+
   const responseHeaders = {
     'Content-Type': contentType,
-    'Content-Length': stats.size,
-    'Cache-Control': 'no-cache',
+    'Content-Length': responsePayload.length,
+    'ETag': asset.etag,
+    'Cache-Control': cacheControl,
+    'Vary': 'Accept-Encoding',
     ...SECURITY_HEADERS
   };
+
+  if (canGzip) {
+    responseHeaders['Content-Encoding'] = 'gzip';
+  }
 
   // HEAD method: send headers and end without body
   if (req.method === 'HEAD') {
@@ -197,21 +269,14 @@ export function handleRequest(req, res) {
   }
 
   res.writeHead(200, responseHeaders);
-  const stream = fs.createReadStream(resolvedPath);
-  stream.on('error', () => {
-    if (!res.headersSent) {
-      res.writeHead(500, {
-        'Content-Type': 'text/plain; charset=UTF-8',
-        ...SECURITY_HEADERS
-      });
-    }
-    res.end();
-  });
-  stream.pipe(res);
+  res.end(responsePayload);
 }
 
 export function createServer() {
-  return http.createServer(handleRequest);
+  const s = http.createServer(handleRequest);
+  s.keepAliveTimeout = 65000;
+  s.headersTimeout = 66000;
+  return s;
 }
 
 export const server = createServer();

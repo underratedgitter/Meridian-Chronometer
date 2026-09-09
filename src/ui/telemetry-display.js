@@ -18,7 +18,12 @@ export class TelemetryDisplay {
     this.width = 0;
     this.height = 0;
     this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.isLowPowerMode = false;
     this.resize();
+  }
+
+  setLowPowerMode(enabled) {
+    this.isLowPowerMode = Boolean(enabled);
   }
 
   resize() {

@@ -25,8 +25,13 @@ export class ChronometerDial {
     this.height = 0;
     this.radius = 0;
     this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.isLowPowerMode = false;
 
     this.resize();
+  }
+
+  setLowPowerMode(enabled) {
+    this.isLowPowerMode = Boolean(enabled);
   }
 
   resize() {
@@ -300,8 +305,10 @@ export class ChronometerDial {
     ctx.rotate(angle);
 
     // Azure blued-steel needle hand with star counterweight
-    ctx.shadowColor = 'rgba(79, 164, 232, 0.4)';
-    ctx.shadowBlur = 4 * dpr;
+    if (!this.isLowPowerMode) {
+      ctx.shadowColor = 'rgba(79, 164, 232, 0.4)';
+      ctx.shadowBlur = 4 * dpr;
+    }
 
     ctx.beginPath();
     ctx.moveTo(0, 8 * dpr); // counterweight tail
@@ -333,8 +340,10 @@ export class ChronometerDial {
     ctx.translate(cx, cy);
     ctx.rotate(angle);
 
-    ctx.shadowColor = 'rgba(200, 170, 110, 0.45)';
-    ctx.shadowBlur = 6 * dpr;
+    if (!this.isLowPowerMode) {
+      ctx.shadowColor = 'rgba(200, 170, 110, 0.45)';
+      ctx.shadowBlur = 6 * dpr;
+    }
 
     // Meridian Gold hand with solar motif
     // Hand shaft
@@ -376,8 +385,10 @@ export class ChronometerDial {
     ctx.translate(cx, cy);
     ctx.rotate(angle);
 
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.25)';
-    ctx.shadowBlur = 4 * dpr;
+    if (!this.isLowPowerMode) {
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.25)';
+      ctx.shadowBlur = 4 * dpr;
+    }
 
     // Faceted platinum hand with open Breguet eye
     // Counterbalance tail
@@ -417,8 +428,10 @@ export class ChronometerDial {
     ctx.translate(cx, cy);
     ctx.rotate(angle);
 
-    ctx.shadowColor = 'rgba(216, 226, 236, 0.35)';
-    ctx.shadowBlur = 4 * dpr;
+    if (!this.isLowPowerMode) {
+      ctx.shadowColor = 'rgba(216, 226, 236, 0.35)';
+      ctx.shadowBlur = 4 * dpr;
+    }
 
     // Slender Breguet faceted minute hand
     ctx.beginPath();

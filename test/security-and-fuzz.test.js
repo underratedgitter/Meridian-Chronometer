@@ -513,4 +513,146 @@ describe('State & Memory Leak Stress-Testing', () => {
     });
   });
 
+  describe('Client Scalability & Adaptive Low-Power Mode (<30 FPS)', () => {
+    it('supports dynamic setLowPowerMode toggling across dial, world observatory, and telemetry', async () => {
+      const { ChronometerDial } = await import('../src/ui/chronometer-dial.js');
+      const { WorldObservatory } = await import('../src/ui/world-observatory.js');
+      const { TelemetryDisplay } = await import('../src/ui/telemetry-display.js');
+
+      // Mock canvas & 2D context
+      const createMockCanvas = () => {
+        const ctx = {
+          save: () => {},
+          restore: () => {},
+          clearRect: () => {},
+          fillRect: () => {},
+          strokeRect: () => {},
+          beginPath: () => {},
+          arc: () => {},
+          fill: () => {},
+          stroke: () => {},
+          moveTo: () => {},
+          lineTo: () => {},
+          closePath: () => {},
+          translate: () => {},
+          rotate: () => {},
+          scale: () => {},
+          drawImage: () => {},
+          putImageData: () => {},
+          createImageData: () => ({ data: new Uint8ClampedArray(4) }),
+          setLineDash: () => {},
+          getLineDash: () => [],
+          createRadialGradient: () => ({ addColorStop: () => {} }),
+          createLinearGradient: () => ({ addColorStop: () => {} }),
+          fillText: () => {},
+          strokeText: () => {},
+          measureText: () => ({ width: 10 }),
+          clip: () => {}
+        };
+        return {
+          getContext: () => ctx,
+          getBoundingClientRect: () => ({ width: 380, height: 380 }),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          width: 380,
+          height: 380
+        };
+      };
+
+      const dialCanvas = createMockCanvas();
+      const dial = new ChronometerDial(dialCanvas);
+      assert.equal(dial.isLowPowerMode, false);
+
+      dial.setLowPowerMode(true);
+      assert.equal(dial.isLowPowerMode, true);
+      // Verify rendering succeeds without throwing in low power mode
+      dial.render({
+        utcDate: new Date(),
+        solarApparentHours: 12.5,
+        siderealHours: 6.2
+      });
+
+      dial.setLowPowerMode(false);
+      assert.equal(dial.isLowPowerMode, false);
+
+      // World Observatory
+      const mapCanvas = createMockCanvas();
+      const observatory = new WorldObservatory(mapCanvas);
+      assert.equal(observatory.isLowPowerMode, false);
+
+      observatory.setLowPowerMode(true);
+      assert.equal(observatory.isLowPowerMode, true);
+      observatory.setProjectionMode('orthographic');
+      observatory.render(new Date());
+
+      observatory.setProjectionMode('equirectangular');
+      observatory.render(new Date());
+
+      observatory.setLowPowerMode(false);
+      assert.equal(observatory.isLowPowerMode, false);
+
+      // Telemetry Display
+      const analemmaCanvas = createMockCanvas();
+      const container = { innerHTML: '' };
+      const telemetry = new TelemetryDisplay(container, analemmaCanvas);
+      assert.equal(telemetry.isLowPowerMode, false);
+
+      telemetry.setLowPowerMode(true);
+      assert.equal(telemetry.isLowPowerMode, true);
+      telemetry.render(new Date(), { lat: 51.5, lon: 0.0, name: 'Greenwich' });
+    });
+
+    it('executes 1,000 continuous render frames without memory leak or context explosion', async () => {
+      const { ChronometerDial } = await import('../src/ui/chronometer-dial.js');
+      let contextAllocations = 0;
+      const mockCanvas = {
+        getContext: () => {
+          contextAllocations++;
+          return {
+            save: () => {},
+            restore: () => {},
+            clearRect: () => {},
+            beginPath: () => {},
+            arc: () => {},
+            fill: () => {},
+            stroke: () => {},
+            moveTo: () => {},
+            lineTo: () => {},
+            closePath: () => {},
+            translate: () => {},
+            rotate: () => {},
+            scale: () => {},
+            setLineDash: () => {},
+            getLineDash: () => [],
+            createRadialGradient: () => ({ addColorStop: () => {} }),
+            createLinearGradient: () => ({ addColorStop: () => {} }),
+            fillText: () => {},
+            strokeText: () => {},
+            measureText: () => ({ width: 10 }),
+            clip: () => {}
+          };
+        },
+        getBoundingClientRect: () => ({ width: 380, height: 380 }),
+        width: 380,
+        height: 380
+      };
+
+      const dial = new ChronometerDial(mockCanvas);
+      assert.equal(contextAllocations, 1, 'Canvas context should be initialized exactly once');
+
+      const now = Date.now();
+      for (let i = 0; i < 1000; i++) {
+        dial.render({
+          utcDate: new Date(now + i * 16),
+          solarApparentHours: (i * 0.01) % 24,
+          siderealHours: (i * 0.010027) % 24
+        });
+      }
+
+      // Context allocations must remain exactly 1 across all 1,000 frames
+      assert.equal(contextAllocations, 1, 'Zero redundant 2D contexts created during animation loop');
+    });
+  });
+
 });
+

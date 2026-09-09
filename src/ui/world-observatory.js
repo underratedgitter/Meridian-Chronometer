@@ -57,9 +57,14 @@ export class WorldObservatory {
     this.dragStartGlobe = null;
     this.totalDragDist = 0;
     this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.isLowPowerMode = false;
 
     this.setupInteractivity();
     this.resize();
+  }
+
+  setLowPowerMode(enabled) {
+    this.isLowPowerMode = Boolean(enabled);
   }
 
   resize() {
@@ -164,10 +169,11 @@ export class WorldObservatory {
       }
     });
 
-    window.addEventListener('mouseup', (e) => {
-      if (!this.isDragging) return;
-      const p = getCanvasPos(e);
-      const isClick = this.totalDragDist < 6;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mouseup', (e) => {
+        if (!this.isDragging) return;
+        const p = getCanvasPos(e);
+        const isClick = this.totalDragDist < 6;
 
       if (this.projectionMode === 'orthographic') {
         if (isClick) {
@@ -235,6 +241,7 @@ export class WorldObservatory {
       this.isDragging = false;
       this.dragStartPos = null;
     });
+  }
 
     this.canvas.addEventListener('mouseleave', () => {
       this.hoverCoord = null;
@@ -482,6 +489,7 @@ export class WorldObservatory {
   }
 
   drawOrthographicDayNight(ctx, cx, cy, radius, centerLon, centerLat, sunPhiRad, sunLamRad) {
+    if (typeof document === 'undefined') return;
     // Render spherical day/night shadow using an offscreen grid buffer
     if (!this.orthoShadowCanvas) {
       this.orthoShadowW = 160;
@@ -589,8 +597,10 @@ export class WorldObservatory {
         ctx.beginPath();
         ctx.arc(cx + p.x, cy + p.y, cityR, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255, 224, 130, ${0.75 * darkness})`;
-        ctx.shadowColor = '#ffca28';
-        ctx.shadowBlur = 6 * dpr;
+        if (!this.isLowPowerMode) {
+          ctx.shadowColor = '#ffca28';
+          ctx.shadowBlur = 6 * dpr;
+        }
         ctx.fill();
       }
     }
@@ -737,8 +747,10 @@ export class WorldObservatory {
     ctx.save();
     ctx.strokeStyle = 'rgba(200, 170, 110, 0.7)';
     ctx.lineWidth = 1.4 * this.dpr;
-    ctx.shadowColor = 'rgba(200, 170, 110, 0.6)';
-    ctx.shadowBlur = 8 * this.dpr;
+    if (!this.isLowPowerMode) {
+      ctx.shadowColor = 'rgba(200, 170, 110, 0.6)';
+      ctx.shadowBlur = 8 * this.dpr;
+    }
 
     ctx.beginPath();
     let isDrawing = false;
