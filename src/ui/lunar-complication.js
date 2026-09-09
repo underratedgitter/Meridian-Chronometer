@@ -6,22 +6,22 @@
  */
 
 import { getLunarComplication } from '../engine/astronomy.js';
+import { escapeHTML, safeMerge } from '../engine/sanitizer.js';
 
 export class LunarComplication {
   constructor(canvasElement, telemetryContainer, options = {}) {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
     this.container = telemetryContainer;
-    this.options = {
+    this.options = safeMerge({
       primaryGold: '#c8aa6e',
       goldLight: '#e8ca8e',
       platinum: '#d8e2ec',
       deepSky: '#05070e',
       moonBright: '#eaf0f8',
       moonDark: '#121620',
-      craterColor: 'rgba(90, 105, 125, 0.28)',
-      ...options
-    };
+      craterColor: 'rgba(90, 105, 125, 0.28)'
+    }, options);
 
     this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     this.resize();
@@ -264,25 +264,25 @@ export class LunarComplication {
 
     this.container.innerHTML = `
       <div class="lunar-telemetry-header">
-        <span class="lunar-phase-badge">${comp.phaseName.toUpperCase()}</span>
+        <span class="lunar-phase-badge">${escapeHTML(comp.phaseName.toUpperCase())}</span>
         <span class="lunar-orbit-dir">${comp.isWaxing ? '▲ WAXING' : '▼ WANING'}</span>
       </div>
       <div class="lunar-stat-grid">
         <div class="lunar-stat">
           <span class="stat-label">ILLUMINATION</span>
-          <span class="stat-value gold-glow">${comp.illuminationPercent}%</span>
+          <span class="stat-value gold-glow">${escapeHTML(comp.illuminationPercent)}%</span>
         </div>
         <div class="lunar-stat">
           <span class="stat-label">LUNAR AGE</span>
-          <span class="stat-value">${comp.lunarAgeDays.toFixed(1)} <small>d</small></span>
+          <span class="stat-value">${escapeHTML(comp.lunarAgeDays.toFixed(1))} <small>d</small></span>
         </div>
         <div class="lunar-stat">
           <span class="stat-label">NEXT FULL MOON</span>
-          <span class="stat-value">${fullDays}d ${fullHours}h</span>
+          <span class="stat-value">${escapeHTML(fullDays)}d ${escapeHTML(fullHours)}h</span>
         </div>
         <div class="lunar-stat">
           <span class="stat-label">NEXT NEW MOON</span>
-          <span class="stat-value">${newDays}d ${newHours}h</span>
+          <span class="stat-value">${escapeHTML(newDays)}d ${escapeHTML(newHours)}h</span>
         </div>
       </div>
     `;

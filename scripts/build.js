@@ -7,6 +7,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const filesInOrder = [
+  'src/engine/sanitizer.js',
   'src/engine/astronomy.js',
   'src/engine/world-geometry.js',
   'src/engine/time-controller.js',

@@ -5,6 +5,7 @@
  */
 
 import { getCelestialTelemetry, getSolarPosition } from '../engine/astronomy.js';
+import { escapeHTML } from '../engine/sanitizer.js';
 
 export class TelemetryDisplay {
   constructor(containerElement, analemmaCanvasElement) {
@@ -80,11 +81,11 @@ export class TelemetryDisplay {
               <span class="icon">☀️</span> SOLAR MERIDIAN TRANSIT
             </div>
             <div class="telemetry-card-main">
-              <span class="telemetry-highlight gold-glow">${this.formatTime(telemetry.solarNoonUTC)}</span>
+              <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))}</span>
             </div>
             <div class="telemetry-subdata">
-              <div>Transit Altitude: <strong>${telemetry.solarElevationAtNoonDeg.toFixed(1)}°</strong></div>
-              <div>Declination: <strong>${solarPos.declinationDeg >= 0 ? '+' : ''}${solarPos.declinationDeg.toFixed(2)}°</strong></div>
+              <div>Transit Altitude: <strong>${escapeHTML(telemetry.solarElevationAtNoonDeg.toFixed(1))}°</strong></div>
+              <div>Declination: <strong>${solarPos.declinationDeg >= 0 ? '+' : ''}${escapeHTML(solarPos.declinationDeg.toFixed(2))}°</strong></div>
             </div>
           </div>
 
@@ -95,15 +96,15 @@ export class TelemetryDisplay {
             </div>
             <div class="telemetry-row">
               <span class="field-label">Sunrise</span>
-              <span class="field-value">${this.formatTime(telemetry.sunriseUTC)}</span>
+              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))}</span>
             </div>
             <div class="telemetry-row">
               <span class="field-label">Sunset</span>
-              <span class="field-value">${this.formatTime(telemetry.sunsetUTC)}</span>
+              <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))}</span>
             </div>
             <div class="telemetry-row">
               <span class="field-label">Day Length</span>
-              <span class="field-value platinum-glow">${telemetry.dayLengthHours.toFixed(2)} hrs</span>
+              <span class="field-value platinum-glow">${escapeHTML(telemetry.dayLengthHours.toFixed(2))} hrs</span>
             </div>
           </div>
 
@@ -115,15 +116,15 @@ export class TelemetryDisplay {
             <div class="telemetry-twilight-grid">
               <div class="twilight-phase">
                 <span class="twilight-tag">CIVIL (0° to −6°)</span>
-                <span class="twilight-val">${this.formatTime(telemetry.civilDawnUTC)} / ${this.formatTime(telemetry.civilDuskUTC)}</span>
+                <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.civilDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.civilDuskUTC))}</span>
               </div>
               <div class="twilight-phase">
                 <span class="twilight-tag">NAUTICAL (−6° to −12°)</span>
-                <span class="twilight-val">${this.formatTime(telemetry.nauticalDawnUTC)} / ${this.formatTime(telemetry.nauticalDuskUTC)}</span>
+                <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.nauticalDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.nauticalDuskUTC))}</span>
               </div>
               <div class="twilight-phase">
                 <span class="twilight-tag">ASTRONOMICAL (−12° to −18°)</span>
-                <span class="twilight-val">${this.formatTime(telemetry.astronomicalDawnUTC)} / ${this.formatTime(telemetry.astronomicalDuskUTC)}</span>
+                <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.astronomicalDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.astronomicalDuskUTC))}</span>
               </div>
             </div>
           </div>
@@ -134,8 +135,8 @@ export class TelemetryDisplay {
               <span class="icon">⏱️</span> EQUATION OF TIME (EoT)
             </div>
             <div class="eot-main-row">
-              <span class="eot-value gold-glow">${eotFormatted}</span>
-              <span class="eot-status">${eotAheadBehind}</span>
+              <span class="eot-value gold-glow">${escapeHTML(eotFormatted)}</span>
+              <span class="eot-status">${escapeHTML(eotAheadBehind)}</span>
             </div>
             <div class="eot-explanation">
               Difference between True Apparent Sundial Time and Uniform Mean Clock Time.

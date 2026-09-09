@@ -11,7 +11,9 @@ const RAD2DEG = 180.0 / Math.PI;
  * Normalizes an angle in degrees to [0, 360).
  */
 export function normalizeDegrees(deg) {
-  const b = deg % 360.0;
+  const d = Number(deg);
+  if (!Number.isFinite(d)) return 0.0;
+  const b = d % 360.0;
   return b < 0 ? b + 360.0 : b;
 }
 
@@ -19,7 +21,9 @@ export function normalizeDegrees(deg) {
  * Normalizes an angle in hours to [0, 24).
  */
 export function normalizeHours(hours) {
-  const b = hours % 24.0;
+  const h = Number(hours);
+  if (!Number.isFinite(h)) return 0.0;
+  const b = h % 24.0;
   return b < 0 ? b + 24.0 : b;
 }
 
@@ -29,7 +33,17 @@ export function normalizeHours(hours) {
  * Unix epoch (1970-01-01 00:00:00 UTC) = 2440587.5
  */
 export function getJulianDate(date) {
-  const time = date instanceof Date ? date.getTime() : Number(date);
+  let time;
+  if (date instanceof Date) {
+    time = date.getTime();
+  } else if (typeof date === 'number') {
+    time = date;
+  } else if (date !== null && date !== undefined) {
+    time = new Date(date).getTime();
+  }
+  if (!Number.isFinite(time)) {
+    return 2451545.0; // J2000.0 epoch fallback
+  }
   return time / 86400000.0 + 2440587.5;
 }
 
@@ -37,7 +51,9 @@ export function getJulianDate(date) {
  * Converts Julian Date to Julian Centuries elapsed since J2000.0 (T).
  */
 export function getJulianCenturies(jd) {
-  return (jd - 2451545.0) / 36525.0;
+  const j = Number(jd);
+  if (!Number.isFinite(j)) return 0.0;
+  return (j - 2451545.0) / 36525.0;
 }
 
 /**
@@ -119,7 +135,9 @@ export function getSolarPosition(date) {
   const equationOfTimeMinutes = eotRad * RAD2DEG * 4.0;
 
   // Subsolar Point (where Sun is at zenith)
-  const d = date instanceof Date ? date : new Date(date);
+  const d = (date instanceof Date && Number.isFinite(date.getTime()))
+    ? date
+    : (typeof date === 'number' && Number.isFinite(date) ? new Date(date) : new Date(Date.UTC(2000, 0, 1, 12, 0, 0)));
   const utcHours =
     d.getUTCHours() +
     d.getUTCMinutes() / 60.0 +
@@ -130,10 +148,9 @@ export function getSolarPosition(date) {
   // Apparent solar time at Greenwich = utcHours + equationOfTimeMinutes / 60
   // Solar noon at Greenwich occurs when utcHours = 12 - equationOfTimeMinutes / 60
   // Lon = -(utcHours - 12 + EoT/60) * 15
-  let subsolarLon = -(utcHours - 12.0 + equationOfTimeMinutes / 60.0) * 15.0;
-  // Wrap to [-180, 180]
-  while (subsolarLon > 180) subsolarLon -= 360;
-  while (subsolarLon < -180) subsolarLon += 360;
+  let subsolarLon = (-(utcHours - 12.0 + equationOfTimeMinutes / 60.0) * 15.0) % 360.0;
+  if (subsolarLon > 180.0) subsolarLon -= 360.0;
+  if (subsolarLon < -180.0) subsolarLon += 360.0;
 
   return {
     declinationDeg: deltaDeg,
@@ -174,7 +191,12 @@ export function getLocalSolarTime(date, longitudeDeg) {
  * Solar noon, sunrise, sunset, golden hour, civil/nautical/astronomical twilights.
  */
 export function getCelestialTelemetry(date, latitudeDeg, longitudeDeg) {
-  const d = date instanceof Date ? date : new Date(date);
+  const d = (date instanceof Date && Number.isFinite(date.getTime()))
+    ? date
+    : (typeof date === 'number' && Number.isFinite(date) ? new Date(date) : new Date());
+  const latDeg = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(latitudeDeg)) ? Number(latitudeDeg) : 0));
+  const lonDeg = Number.isFinite(Number(longitudeDeg)) ? Number(longitudeDeg) : 0;
+
   // Reference date at UTC midnight of the target day
   const midnightUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
@@ -183,11 +205,11 @@ export function getCelestialTelemetry(date, latitudeDeg, longitudeDeg) {
   const { declinationDeg, equationOfTimeMinutes } = getSolarPosition(middayDate);
 
   // Solar noon in UTC hours
-  const solarNoonHours = 12.0 - longitudeDeg / 15.0 - equationOfTimeMinutes / 60.0;
+  const solarNoonHours = 12.0 - lonDeg / 15.0 - equationOfTimeMinutes / 60.0;
   const solarNoonTimeMs = midnightUtc + solarNoonHours * 3600 * 1000;
   const solarNoonUTC = new Date(solarNoonTimeMs);
 
-  const phiRad = latitudeDeg * DEG2RAD;
+  const phiRad = latDeg * DEG2RAD;
   const deltaRad = declinationDeg * DEG2RAD;
 
   /**
@@ -196,17 +218,27 @@ export function getCelestialTelemetry(date, latitudeDeg, longitudeDeg) {
    */
   function calcTimesForAltitude(h0Deg) {
     const h0Rad = h0Deg * DEG2RAD;
-    const cosH = (Math.sin(h0Rad) - Math.sin(phiRad) * Math.sin(deltaRad)) /
-                 (Math.cos(phiRad) * Math.cos(deltaRad));
+    const denom = Math.cos(phiRad) * Math.cos(deltaRad);
 
-    if (cosH > 1.0) {
+    if (Math.abs(denom) < 1e-12) {
+      const sinDiff = Math.sin(phiRad) * Math.sin(deltaRad) - Math.sin(h0Rad);
+      if (sinDiff >= 0) {
+        return { rise: null, set: null, status: 'polar_day' };
+      } else {
+        return { rise: null, set: null, status: 'polar_night' };
+      }
+    }
+
+    let cosH = (Math.sin(h0Rad) - Math.sin(phiRad) * Math.sin(deltaRad)) / denom;
+
+    if (Number.isNaN(cosH) || cosH > 1.0) {
       return { rise: null, set: null, status: 'polar_night' };
     }
     if (cosH < -1.0) {
       return { rise: null, set: null, status: 'polar_day' };
     }
 
-    const hRad = Math.acos(cosH);
+    const hRad = Math.acos(Math.max(-1.0, Math.min(1.0, cosH)));
     const deltaHours = (hRad * RAD2DEG) / 15.0;
     const deltaMs = deltaHours * 3600 * 1000;
 
@@ -366,11 +398,14 @@ export function getTerminatorPoints(date, numPoints = 360, altitudeDeg = 0) {
     const x = cosPsi * cosPhiS - sinPhiS * sinPsi * Math.cos(alpha);
     const dLamDeg = Math.atan2(y, x) * RAD2DEG;
 
-    let lonDeg = lambdaSDeg + dLamDeg;
-    while (lonDeg > 180.0) lonDeg -= 360.0;
-    while (lonDeg < -180.0) lonDeg += 360.0;
+    let lonDeg = (lambdaSDeg + dLamDeg) % 360.0;
+    if (lonDeg > 180.0) lonDeg -= 360.0;
+    if (lonDeg < -180.0) lonDeg += 360.0;
 
-    points.push({ latitudeDeg: latDeg, longitudeDeg: lonDeg });
+    points.push({
+      latitudeDeg: Number.isFinite(latDeg) ? latDeg : 0,
+      longitudeDeg: Number.isFinite(lonDeg) ? lonDeg : 0
+    });
   }
 
   return points;
@@ -409,14 +444,19 @@ export function getNightShadowPolygon(date, numSteps = 360) {
  * Azimuth convention: 0° North, 90° East, 180° South, 270° West.
  */
 export function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
+  const ra = Number.isFinite(Number(raHours)) ? Number(raHours) : 0;
+  const dec = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(decDeg)) ? Number(decDeg) : 0));
+  const lmst = Number.isFinite(Number(lmstHours)) ? Number(lmstHours) : 0;
+  const lat = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(latDeg)) ? Number(latDeg) : 0));
+
   // Hour Angle in radians [-PI, PI]
-  let hDeg = (lmstHours - raHours) * 15.0;
-  while (hDeg > 180.0) hDeg -= 360.0;
-  while (hDeg < -180.0) hDeg += 360.0;
+  let hDeg = ((lmst - ra) * 15.0) % 360.0;
+  if (hDeg > 180.0) hDeg -= 360.0;
+  if (hDeg < -180.0) hDeg += 360.0;
   const hRad = hDeg * DEG2RAD;
 
-  const phiRad = latDeg * DEG2RAD;
-  const deltaRad = decDeg * DEG2RAD;
+  const phiRad = lat * DEG2RAD;
+  const deltaRad = dec * DEG2RAD;
 
   // Altitude
   const sinAlt =
@@ -430,18 +470,27 @@ export function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
   // Azimuth
   let azDeg = 0;
   if (cosAlt > 1e-6) {
-    const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
-    const cosAz =
-      (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
-      (Math.cos(phiRad) * cosAlt);
-    azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
-    azDeg = (azDeg + 360.0) % 360.0;
+    const cosPhi = Math.cos(phiRad);
+    if (Math.abs(cosPhi) < 1e-6) {
+      // Singularity at North Pole (+90) or South Pole (-90)
+      azDeg = lat > 0 ? normalizeDegrees(180.0 - hDeg) : normalizeDegrees(hDeg);
+    } else {
+      const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
+      const cosAz =
+        (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
+        (cosPhi * cosAlt);
+      azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
+      azDeg = normalizeDegrees(azDeg);
+    }
   }
 
+  if (!Number.isFinite(azDeg)) azDeg = 0;
+  const finalAlt = Number.isFinite(altDeg) ? altDeg : 0;
+
   return {
-    altitudeDeg: altDeg,
+    altitudeDeg: finalAlt,
     azimuthDeg: azDeg,
-    isVisible: altDeg > 0
+    isVisible: finalAlt > 0
   };
 }
 
@@ -451,42 +500,60 @@ export function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
  * x is right (+), y is down (+) to match canvas space.
  */
 export function projectOrthographic(lonDeg, latDeg, centerLonDeg, centerLatDeg, radius) {
-  let dLonDeg = lonDeg - centerLonDeg;
-  while (dLonDeg > 180.0) dLonDeg -= 360.0;
-  while (dLonDeg < -180.0) dLonDeg += 360.0;
+  const lon = Number.isFinite(Number(lonDeg)) ? Number(lonDeg) : 0;
+  const lat = Math.max(-90, Math.min(90, Number.isFinite(Number(latDeg)) ? Number(latDeg) : 0));
+  const cLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+  const cLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+  const r = Number.isFinite(Number(radius)) && Number(radius) > 0 ? Number(radius) : 1;
+
+  let dLonDeg = (lon - cLon) % 360.0;
+  if (dLonDeg > 180.0) dLonDeg -= 360.0;
+  if (dLonDeg < -180.0) dLonDeg += 360.0;
 
   const dLam = dLonDeg * DEG2RAD;
-  const phi = latDeg * DEG2RAD;
-  const phi0 = centerLatDeg * DEG2RAD;
+  const phi = lat * DEG2RAD;
+  const phi0 = cLat * DEG2RAD;
 
   const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(dLam);
   const visible = cosC >= 0;
 
   // Screen coordinates relative to globe center:
-  const x = radius * Math.cos(phi) * Math.sin(dLam);
-  const y = -radius * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
+  const x = r * Math.cos(phi) * Math.sin(dLam);
+  const y = -r * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
 
-  return { x, y, visible, cosC };
+  return {
+    x: Number.isFinite(x) ? x : 0,
+    y: Number.isFinite(y) ? y : 0,
+    visible: Boolean(visible),
+    cosC: Number.isFinite(cosC) ? cosC : 0
+  };
 }
 
 /**
  * Inverse raycasting: maps a 2D screen coordinate (x, y) relative to globe center
  * back to 3D geographic coordinates (lon, lat).
- * Returns { hit: boolean, lon: number|null, lat: number|null }.
+ * Returns { hit: boolean, lon: number, lat: number }.
  */
 export function unprojectOrthographic(x, y, centerLonDeg, centerLatDeg, radius) {
+  if (!radius || radius <= 0 || !Number.isFinite(radius) || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return { hit: false, lon: 0, lat: 0 };
+  }
   const rho = Math.sqrt(x * x + y * y);
   if (rho > radius) {
-    return { hit: false, lon: null, lat: null };
+    return { hit: false, lon: 0, lat: 0 };
   }
   if (rho < 1e-6) {
-    return { hit: true, lon: centerLonDeg, lat: centerLatDeg };
+    const safeCLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+    const safeCLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+    return { hit: true, lon: safeCLon, lat: safeCLat };
   }
 
-  const c = Math.asin(rho / radius);
+  const clampedRatio = Math.max(0.0, Math.min(1.0, rho / radius));
+  const c = Math.asin(clampedRatio);
   const sinC = Math.sin(c);
   const cosC = Math.cos(c);
-  const phi0 = centerLatDeg * DEG2RAD;
+  const cLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+  const phi0 = cLat * DEG2RAD;
   const sinPhi0 = Math.sin(phi0);
   const cosPhi0 = Math.cos(phi0);
 
@@ -497,15 +564,20 @@ export function unprojectOrthographic(x, y, centerLonDeg, centerLatDeg, radius) 
   const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
   const lat = Math.asin(clampedSinPhi) * RAD2DEG;
 
-  const numY = x * sinC;
-  const denX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
-  const dLam = Math.atan2(numY, denX) * RAD2DEG;
+  const numArcY = x * sinC;
+  const denArcX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
+  const dLam = Math.atan2(numArcY, denArcX) * RAD2DEG;
 
-  let lon = centerLonDeg + dLam;
-  while (lon > 180.0) lon -= 360.0;
-  while (lon < -180.0) lon += 360.0;
+  const cLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+  let lon = (cLon + dLam) % 360.0;
+  if (lon > 180.0) lon -= 360.0;
+  if (lon < -180.0) lon += 360.0;
 
-  return { hit: true, lon, lat };
+  return {
+    hit: true,
+    lon: Number.isFinite(lon) ? lon : 0,
+    lat: Number.isFinite(lat) ? lat : 0
+  };
 }
 
 /**

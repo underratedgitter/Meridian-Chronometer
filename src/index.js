@@ -19,6 +19,7 @@ import { TelemetryDisplay } from './ui/telemetry-display.js';
 import { TimeScrubber } from './ui/time-scrubber.js';
 import { EscapementAudio } from './ui/audio-escapement.js';
 import { SkyDomeModal } from './ui/sky-dome.js';
+import { escapeHTML } from './engine/sanitizer.js';
 
 class MeridianObservatoryApp {
   constructor() {
@@ -60,7 +61,7 @@ class MeridianObservatoryApp {
     // Populate preset observatories in header dropdown
     if (this.observatorySelect) {
       this.observatorySelect.innerHTML = PRESET_OBSERVATORIES.map((obs) => `
-        <option value="${obs.id}">${obs.name} (${obs.country})</option>
+        <option value="${escapeHTML(obs.id)}">${escapeHTML(obs.name)} (${escapeHTML(obs.country)})</option>
       `).join('');
     }
   }
@@ -237,13 +238,13 @@ class MeridianObservatoryApp {
       date.getUTCMilliseconds() / 3600000.0;
 
     if (this.utcReadout) {
-      this.utcReadout.innerHTML = `${this.formatHMS(utcDecimalHours, true)} <small>UTC</small>`;
+      this.utcReadout.innerHTML = `${escapeHTML(this.formatHMS(utcDecimalHours, true))} <small>UTC</small>`;
     }
     if (this.solarReadout) {
-      this.solarReadout.innerHTML = `${this.formatHMS(solarTime.apparentHours, false)} <small>SOLAR</small>`;
+      this.solarReadout.innerHTML = `${escapeHTML(this.formatHMS(solarTime.apparentHours, false))} <small>SOLAR</small>`;
     }
     if (this.siderealReadout) {
-      this.siderealReadout.innerHTML = `${this.formatHMS(siderealHours, false)} <small>LMST</small>`;
+      this.siderealReadout.innerHTML = `${escapeHTML(this.formatHMS(siderealHours, false))} <small>LMST</small>`;
     }
 
     // 6. Mechanical escapement audio pulse on second boundary

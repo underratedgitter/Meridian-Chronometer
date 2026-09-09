@@ -4,11 +4,13 @@
  * Renders 24-hour UTC, Local Apparent Solar Time, and Sidereal Time with continuous sweeping hands.
  */
 
+import { safeMerge } from '../engine/sanitizer.js';
+
 export class ChronometerDial {
   constructor(canvasElement, options = {}) {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
-    this.options = {
+    this.options = safeMerge({
       primaryGold: '#c8aa6e',
       goldLight: '#e8ca8e',
       goldDark: '#8f7645',
@@ -16,9 +18,8 @@ export class ChronometerDial {
       platinumMuted: 'rgba(216, 226, 236, 0.35)',
       siderealBlue: '#4fa4e8',
       obsidian: '#090a0f',
-      dialPlate: '#0e1118',
-      ...options
-    };
+      dialPlate: '#0e1118'
+    }, options);
 
     this.width = 0;
     this.height = 0;

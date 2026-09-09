@@ -18,12 +18,13 @@ import {
   projectOrthographic,
   unprojectOrthographic
 } from '../engine/astronomy.js';
+import { safeMerge } from '../engine/sanitizer.js';
 
 export class WorldObservatory {
   constructor(canvasElement, options = {}) {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
-    this.options = {
+    this.options = safeMerge({
       primaryGold: '#c8aa6e',
       goldLight: '#e8ca8e',
       platinum: '#d8e2ec',
@@ -33,9 +34,8 @@ export class WorldObservatory {
       oceanFill: '#0b0e14',
       gridColor: 'rgba(216, 226, 236, 0.08)',
       equatorColor: 'rgba(200, 170, 110, 0.25)',
-      tropicColor: 'rgba(200, 170, 110, 0.15)',
-      ...options
-    };
+      tropicColor: 'rgba(200, 170, 110, 0.15)'
+    }, options);
 
     this.observer = {
       lat: 51.4769,

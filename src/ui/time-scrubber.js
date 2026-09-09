@@ -5,6 +5,7 @@
  */
 
 import { PRESET_EPOCHS } from '../engine/world-geometry.js';
+import { escapeHTML } from '../engine/sanitizer.js';
 
 export class TimeScrubber {
   constructor(containerElement, timeController) {
@@ -39,7 +40,7 @@ export class TimeScrubber {
             <label for="epochPreset">CELESTIAL EPOCH:</label>
             <select id="epochPreset" class="meridian-select">
               ${PRESET_EPOCHS.map((p, idx) => `
-                <option value="${p.iso || 'realtime'}" ${idx === 0 ? 'selected' : ''}>${p.label}</option>
+                <option value="${escapeHTML(p.iso || 'realtime')}" ${idx === 0 ? 'selected' : ''}>${escapeHTML(p.label)}</option>
               `).join('')}
             </select>
           </div>
@@ -240,7 +241,7 @@ export class TimeScrubber {
     // Play/Pause button
     const btnPlayPause = c.querySelector('#btnPlayPause');
     if (btnPlayPause) {
-      btnPlayPause.innerHTML = isPlaying ? '❚❚ PAUSE' : '▶ PLAY';
+      btnPlayPause.textContent = isPlaying ? '❚❚ PAUSE' : '▶ PLAY';
     }
 
     // Direction buttons

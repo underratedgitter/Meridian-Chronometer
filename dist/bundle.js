@@ -6,6 +6,56 @@
   "use strict";
 
   // ==========================================
+  // Module: src/engine/sanitizer.js
+  // ==========================================
+  /**
+   * Meridian Chronometer — Security Sanitization & Safe Object Utilities
+   * Provides XSS prevention and prototype pollution immunity.
+   * Zero external dependencies.
+   */
+  
+  /**
+   * Escapes HTML characters in a string or value to prevent Cross-Site Scripting (XSS).
+   * Handles null, undefined, numbers, and strings safely.
+   * @param {unknown} val
+   * @returns {string}
+   */
+  function escapeHTML(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  
+  /**
+   * Safely merges user options into default options, protecting against prototype pollution.
+   * Creates an object with a clean fallback, explicitly rejecting __proto__, constructor,
+   * and prototype properties.
+   * @param {Record<string, any>} defaults
+   * @param {Record<string, any>} options
+   * @returns {Record<string, any>}
+   */
+  function safeMerge(defaults = {}, options = {}) {
+    const clean = Object.create(null);
+    if (defaults && typeof defaults === 'object') {
+      Object.assign(clean, defaults);
+    }
+    if (options && typeof options === 'object') {
+      for (const key of Object.keys(options)) {
+        if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+          clean[key] = options[key];
+        }
+      }
+    }
+    return { ...clean };
+  }
+  
+
+  // ==========================================
   // Module: src/engine/astronomy.js
   // ==========================================
   /**
@@ -21,7 +71,9 @@
    * Normalizes an angle in degrees to [0, 360).
    */
   function normalizeDegrees(deg) {
-    const b = deg % 360.0;
+    const d = Number(deg);
+    if (!Number.isFinite(d)) return 0.0;
+    const b = d % 360.0;
     return b < 0 ? b + 360.0 : b;
   }
   
@@ -29,7 +81,9 @@
    * Normalizes an angle in hours to [0, 24).
    */
   function normalizeHours(hours) {
-    const b = hours % 24.0;
+    const h = Number(hours);
+    if (!Number.isFinite(h)) return 0.0;
+    const b = h % 24.0;
     return b < 0 ? b + 24.0 : b;
   }
   
@@ -39,7 +93,17 @@
    * Unix epoch (1970-01-01 00:00:00 UTC) = 2440587.5
    */
   function getJulianDate(date) {
-    const time = date instanceof Date ? date.getTime() : Number(date);
+    let time;
+    if (date instanceof Date) {
+      time = date.getTime();
+    } else if (typeof date === 'number') {
+      time = date;
+    } else if (date !== null && date !== undefined) {
+      time = new Date(date).getTime();
+    }
+    if (!Number.isFinite(time)) {
+      return 2451545.0; // J2000.0 epoch fallback
+    }
     return time / 86400000.0 + 2440587.5;
   }
   
@@ -47,7 +111,9 @@
    * Converts Julian Date to Julian Centuries elapsed since J2000.0 (T).
    */
   function getJulianCenturies(jd) {
-    return (jd - 2451545.0) / 36525.0;
+    const j = Number(jd);
+    if (!Number.isFinite(j)) return 0.0;
+    return (j - 2451545.0) / 36525.0;
   }
   
   /**
@@ -129,7 +195,9 @@
     const equationOfTimeMinutes = eotRad * RAD2DEG * 4.0;
   
     // Subsolar Point (where Sun is at zenith)
-    const d = date instanceof Date ? date : new Date(date);
+    const d = (date instanceof Date && Number.isFinite(date.getTime()))
+      ? date
+      : (typeof date === 'number' && Number.isFinite(date) ? new Date(date) : new Date(Date.UTC(2000, 0, 1, 12, 0, 0)));
     const utcHours =
       d.getUTCHours() +
       d.getUTCMinutes() / 60.0 +
@@ -140,10 +208,9 @@
     // Apparent solar time at Greenwich = utcHours + equationOfTimeMinutes / 60
     // Solar noon at Greenwich occurs when utcHours = 12 - equationOfTimeMinutes / 60
     // Lon = -(utcHours - 12 + EoT/60) * 15
-    let subsolarLon = -(utcHours - 12.0 + equationOfTimeMinutes / 60.0) * 15.0;
-    // Wrap to [-180, 180]
-    while (subsolarLon > 180) subsolarLon -= 360;
-    while (subsolarLon < -180) subsolarLon += 360;
+    let subsolarLon = (-(utcHours - 12.0 + equationOfTimeMinutes / 60.0) * 15.0) % 360.0;
+    if (subsolarLon > 180.0) subsolarLon -= 360.0;
+    if (subsolarLon < -180.0) subsolarLon += 360.0;
   
     return {
       declinationDeg: deltaDeg,
@@ -184,7 +251,12 @@
    * Solar noon, sunrise, sunset, golden hour, civil/nautical/astronomical twilights.
    */
   function getCelestialTelemetry(date, latitudeDeg, longitudeDeg) {
-    const d = date instanceof Date ? date : new Date(date);
+    const d = (date instanceof Date && Number.isFinite(date.getTime()))
+      ? date
+      : (typeof date === 'number' && Number.isFinite(date) ? new Date(date) : new Date());
+    const latDeg = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(latitudeDeg)) ? Number(latitudeDeg) : 0));
+    const lonDeg = Number.isFinite(Number(longitudeDeg)) ? Number(longitudeDeg) : 0;
+  
     // Reference date at UTC midnight of the target day
     const midnightUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   
@@ -193,11 +265,11 @@
     const { declinationDeg, equationOfTimeMinutes } = getSolarPosition(middayDate);
   
     // Solar noon in UTC hours
-    const solarNoonHours = 12.0 - longitudeDeg / 15.0 - equationOfTimeMinutes / 60.0;
+    const solarNoonHours = 12.0 - lonDeg / 15.0 - equationOfTimeMinutes / 60.0;
     const solarNoonTimeMs = midnightUtc + solarNoonHours * 3600 * 1000;
     const solarNoonUTC = new Date(solarNoonTimeMs);
   
-    const phiRad = latitudeDeg * DEG2RAD;
+    const phiRad = latDeg * DEG2RAD;
     const deltaRad = declinationDeg * DEG2RAD;
   
     /**
@@ -206,17 +278,27 @@
      */
     function calcTimesForAltitude(h0Deg) {
       const h0Rad = h0Deg * DEG2RAD;
-      const cosH = (Math.sin(h0Rad) - Math.sin(phiRad) * Math.sin(deltaRad)) /
-                   (Math.cos(phiRad) * Math.cos(deltaRad));
+      const denom = Math.cos(phiRad) * Math.cos(deltaRad);
   
-      if (cosH > 1.0) {
+      if (Math.abs(denom) < 1e-12) {
+        const sinDiff = Math.sin(phiRad) * Math.sin(deltaRad) - Math.sin(h0Rad);
+        if (sinDiff >= 0) {
+          return { rise: null, set: null, status: 'polar_day' };
+        } else {
+          return { rise: null, set: null, status: 'polar_night' };
+        }
+      }
+  
+      let cosH = (Math.sin(h0Rad) - Math.sin(phiRad) * Math.sin(deltaRad)) / denom;
+  
+      if (Number.isNaN(cosH) || cosH > 1.0) {
         return { rise: null, set: null, status: 'polar_night' };
       }
       if (cosH < -1.0) {
         return { rise: null, set: null, status: 'polar_day' };
       }
   
-      const hRad = Math.acos(cosH);
+      const hRad = Math.acos(Math.max(-1.0, Math.min(1.0, cosH)));
       const deltaHours = (hRad * RAD2DEG) / 15.0;
       const deltaMs = deltaHours * 3600 * 1000;
   
@@ -376,11 +458,14 @@
       const x = cosPsi * cosPhiS - sinPhiS * sinPsi * Math.cos(alpha);
       const dLamDeg = Math.atan2(y, x) * RAD2DEG;
   
-      let lonDeg = lambdaSDeg + dLamDeg;
-      while (lonDeg > 180.0) lonDeg -= 360.0;
-      while (lonDeg < -180.0) lonDeg += 360.0;
+      let lonDeg = (lambdaSDeg + dLamDeg) % 360.0;
+      if (lonDeg > 180.0) lonDeg -= 360.0;
+      if (lonDeg < -180.0) lonDeg += 360.0;
   
-      points.push({ latitudeDeg: latDeg, longitudeDeg: lonDeg });
+      points.push({
+        latitudeDeg: Number.isFinite(latDeg) ? latDeg : 0,
+        longitudeDeg: Number.isFinite(lonDeg) ? lonDeg : 0
+      });
     }
   
     return points;
@@ -419,14 +504,19 @@
    * Azimuth convention: 0° North, 90° East, 180° South, 270° West.
    */
   function raDecToAltAz(raHours, decDeg, lmstHours, latDeg) {
+    const ra = Number.isFinite(Number(raHours)) ? Number(raHours) : 0;
+    const dec = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(decDeg)) ? Number(decDeg) : 0));
+    const lmst = Number.isFinite(Number(lmstHours)) ? Number(lmstHours) : 0;
+    const lat = Math.max(-90.0, Math.min(90.0, Number.isFinite(Number(latDeg)) ? Number(latDeg) : 0));
+  
     // Hour Angle in radians [-PI, PI]
-    let hDeg = (lmstHours - raHours) * 15.0;
-    while (hDeg > 180.0) hDeg -= 360.0;
-    while (hDeg < -180.0) hDeg += 360.0;
+    let hDeg = ((lmst - ra) * 15.0) % 360.0;
+    if (hDeg > 180.0) hDeg -= 360.0;
+    if (hDeg < -180.0) hDeg += 360.0;
     const hRad = hDeg * DEG2RAD;
   
-    const phiRad = latDeg * DEG2RAD;
-    const deltaRad = decDeg * DEG2RAD;
+    const phiRad = lat * DEG2RAD;
+    const deltaRad = dec * DEG2RAD;
   
     // Altitude
     const sinAlt =
@@ -440,18 +530,27 @@
     // Azimuth
     let azDeg = 0;
     if (cosAlt > 1e-6) {
-      const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
-      const cosAz =
-        (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
-        (Math.cos(phiRad) * cosAlt);
-      azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
-      azDeg = (azDeg + 360.0) % 360.0;
+      const cosPhi = Math.cos(phiRad);
+      if (Math.abs(cosPhi) < 1e-6) {
+        // Singularity at North Pole (+90) or South Pole (-90)
+        azDeg = lat > 0 ? normalizeDegrees(180.0 - hDeg) : normalizeDegrees(hDeg);
+      } else {
+        const sinAz = (-Math.cos(deltaRad) * Math.sin(hRad)) / cosAlt;
+        const cosAz =
+          (Math.sin(deltaRad) - Math.sin(phiRad) * clampedSinAlt) /
+          (cosPhi * cosAlt);
+        azDeg = Math.atan2(sinAz, cosAz) * RAD2DEG;
+        azDeg = normalizeDegrees(azDeg);
+      }
     }
   
+    if (!Number.isFinite(azDeg)) azDeg = 0;
+    const finalAlt = Number.isFinite(altDeg) ? altDeg : 0;
+  
     return {
-      altitudeDeg: altDeg,
+      altitudeDeg: finalAlt,
       azimuthDeg: azDeg,
-      isVisible: altDeg > 0
+      isVisible: finalAlt > 0
     };
   }
   
@@ -461,42 +560,60 @@
    * x is right (+), y is down (+) to match canvas space.
    */
   function projectOrthographic(lonDeg, latDeg, centerLonDeg, centerLatDeg, radius) {
-    let dLonDeg = lonDeg - centerLonDeg;
-    while (dLonDeg > 180.0) dLonDeg -= 360.0;
-    while (dLonDeg < -180.0) dLonDeg += 360.0;
+    const lon = Number.isFinite(Number(lonDeg)) ? Number(lonDeg) : 0;
+    const lat = Math.max(-90, Math.min(90, Number.isFinite(Number(latDeg)) ? Number(latDeg) : 0));
+    const cLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+    const cLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+    const r = Number.isFinite(Number(radius)) && Number(radius) > 0 ? Number(radius) : 1;
+  
+    let dLonDeg = (lon - cLon) % 360.0;
+    if (dLonDeg > 180.0) dLonDeg -= 360.0;
+    if (dLonDeg < -180.0) dLonDeg += 360.0;
   
     const dLam = dLonDeg * DEG2RAD;
-    const phi = latDeg * DEG2RAD;
-    const phi0 = centerLatDeg * DEG2RAD;
+    const phi = lat * DEG2RAD;
+    const phi0 = cLat * DEG2RAD;
   
     const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(dLam);
     const visible = cosC >= 0;
   
     // Screen coordinates relative to globe center:
-    const x = radius * Math.cos(phi) * Math.sin(dLam);
-    const y = -radius * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
+    const x = r * Math.cos(phi) * Math.sin(dLam);
+    const y = -r * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dLam));
   
-    return { x, y, visible, cosC };
+    return {
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0,
+      visible: Boolean(visible),
+      cosC: Number.isFinite(cosC) ? cosC : 0
+    };
   }
   
   /**
    * Inverse raycasting: maps a 2D screen coordinate (x, y) relative to globe center
    * back to 3D geographic coordinates (lon, lat).
-   * Returns { hit: boolean, lon: number|null, lat: number|null }.
+   * Returns { hit: boolean, lon: number, lat: number }.
    */
   function unprojectOrthographic(x, y, centerLonDeg, centerLatDeg, radius) {
+    if (!radius || radius <= 0 || !Number.isFinite(radius) || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return { hit: false, lon: 0, lat: 0 };
+    }
     const rho = Math.sqrt(x * x + y * y);
     if (rho > radius) {
-      return { hit: false, lon: null, lat: null };
+      return { hit: false, lon: 0, lat: 0 };
     }
     if (rho < 1e-6) {
-      return { hit: true, lon: centerLonDeg, lat: centerLatDeg };
+      const safeCLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+      const safeCLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+      return { hit: true, lon: safeCLon, lat: safeCLat };
     }
   
-    const c = Math.asin(rho / radius);
+    const clampedRatio = Math.max(0.0, Math.min(1.0, rho / radius));
+    const c = Math.asin(clampedRatio);
     const sinC = Math.sin(c);
     const cosC = Math.cos(c);
-    const phi0 = centerLatDeg * DEG2RAD;
+    const cLat = Math.max(-90, Math.min(90, Number.isFinite(Number(centerLatDeg)) ? Number(centerLatDeg) : 0));
+    const phi0 = cLat * DEG2RAD;
     const sinPhi0 = Math.sin(phi0);
     const cosPhi0 = Math.cos(phi0);
   
@@ -507,15 +624,20 @@
     const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
     const lat = Math.asin(clampedSinPhi) * RAD2DEG;
   
-    const numY = x * sinC;
-    const denX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
-    const dLam = Math.atan2(numY, denX) * RAD2DEG;
+    const numArcY = x * sinC;
+    const denArcX = rho * cosPhi0 * cosC - py * sinPhi0 * sinC;
+    const dLam = Math.atan2(numArcY, denArcX) * RAD2DEG;
   
-    let lon = centerLonDeg + dLam;
-    while (lon > 180.0) lon -= 360.0;
-    while (lon < -180.0) lon += 360.0;
+    const cLon = Number.isFinite(Number(centerLonDeg)) ? Number(centerLonDeg) : 0;
+    let lon = (cLon + dLam) % 360.0;
+    if (lon > 180.0) lon -= 360.0;
+    if (lon < -180.0) lon += 360.0;
   
-    return { hit: true, lon, lat };
+    return {
+      hit: true,
+      lon: Number.isFinite(lon) ? lon : 0,
+      lat: Number.isFinite(lat) ? lat : 0
+    };
   }
   
   /**
@@ -782,7 +904,12 @@
   class TimeController {
     constructor(initialDate = null) {
       this.isRealtime = !initialDate;
-      this.simulatedTimeMs = initialDate ? new Date(initialDate).getTime() : Date.now();
+      let initialMs = Date.now();
+      if (initialDate) {
+        const parsed = initialDate instanceof Date ? initialDate.getTime() : new Date(initialDate).getTime();
+        if (Number.isFinite(parsed)) initialMs = parsed;
+      }
+      this.simulatedTimeMs = initialMs;
       this.speedMultiplier = 1;
       this.direction = 1; // 1 = forward, -1 = reverse
       this.isPlaying = true;
@@ -804,8 +931,12 @@
      * Directly sets the current chronometer time (switches to simulated mode).
      */
     setTime(dateOrMs) {
+      const ms = dateOrMs instanceof Date ? dateOrMs.getTime() : Number(dateOrMs);
+      if (!Number.isFinite(ms)) {
+        return;
+      }
       this.isRealtime = false;
-      this.simulatedTimeMs = dateOrMs instanceof Date ? dateOrMs.getTime() : Number(dateOrMs);
+      this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, ms));
       this.notify();
     }
   
@@ -825,7 +956,11 @@
      * Sets simulation speed multiplier (e.g. 1, 60, 3600, 86400).
      */
     setSpeed(multiplier) {
-      this.speedMultiplier = Math.max(0.1, Number(multiplier) || 1);
+      let speed = Number(multiplier);
+      if (!Number.isFinite(speed) || speed < 0.1) {
+        speed = 1;
+      }
+      this.speedMultiplier = Math.max(0.1, speed);
       if (this.speedMultiplier !== 1 && this.isRealtime) {
         // Switching to accelerated speed automatically moves from realtime to simulated
         this.isRealtime = false;
@@ -838,7 +973,8 @@
      * Sets playback direction: +1 for forward, -1 for backward.
      */
     setDirection(direction) {
-      this.direction = direction < 0 ? -1 : 1;
+      const d = Number(direction);
+      this.direction = Number.isFinite(d) && d < 0 ? -1 : 1;
       if (this.direction !== 1 && this.isRealtime) {
         this.isRealtime = false;
         this.simulatedTimeMs = Date.now();
@@ -885,7 +1021,10 @@
         this.simulatedTimeMs = Date.now();
         this.isRealtime = false;
       }
-      this.simulatedTimeMs += deltaSeconds * 1000;
+      const delta = Number(deltaSeconds);
+      if (Number.isFinite(delta)) {
+        this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + delta * 1000));
+      }
       this.notify();
     }
   
@@ -898,8 +1037,13 @@
       if (this.isRealtime) {
         this.simulatedTimeMs = Date.now();
       } else {
-        const deltaSimMs = realElapsedMs * this.speedMultiplier * this.direction;
-        this.simulatedTimeMs += deltaSimMs;
+        const elapsed = Number(realElapsedMs);
+        if (Number.isFinite(elapsed)) {
+          const deltaSimMs = elapsed * this.speedMultiplier * this.direction;
+          if (Number.isFinite(deltaSimMs)) {
+            this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + deltaSimMs));
+          }
+        }
       }
   
       this.notify();
@@ -941,6 +1085,7 @@
       this.isEnabled = false;
       this.volume = 0.15;
       this.lastTickSec = -1;
+      this.activeNodes = new Set();
     }
   
     init() {
@@ -958,6 +1103,9 @@
     toggle() {
       this.init();
       this.isEnabled = !this.isEnabled;
+      if (!this.isEnabled) {
+        this.stop();
+      }
       return this.isEnabled;
     }
   
@@ -966,15 +1114,67 @@
     }
   
     /**
+     * Immediately stops, disconnects, and clears all currently playing or scheduled audio nodes.
+     * Prevents dangling node accumulation in Web Audio graph memory.
+     */
+    stop() {
+      for (const item of this.activeNodes) {
+        try {
+          if (item.osc) {
+            item.osc.onended = null;
+            try { item.osc.stop(); } catch {}
+            item.osc.disconnect();
+          }
+          if (item.gain) {
+            item.gain.disconnect();
+          }
+        } catch {
+          // Node already stopped or disconnected
+        }
+      }
+      this.activeNodes.clear();
+    }
+  
+    /**
+     * Cleans up all resources and terminates AudioContext if active.
+     */
+    destroy() {
+      this.stop();
+      this.isEnabled = false;
+      if (this.ctx) {
+        try {
+          if (this.ctx.state !== 'closed' && typeof this.ctx.close === 'function') {
+            this.ctx.close();
+          }
+        } catch {}
+        this.ctx = null;
+      }
+    }
+  
+    /**
      * Triggers a subtle mechanical tick-tock impulse.
      * alternates pitch slightly for realistic anchor pallet jewel striking escape wheel tooth.
      */
     tick(isTock = false) {
-      if (!this.isEnabled || !this.ctx) return;
+      if (!this.isEnabled || !this.ctx || this.volume <= 0) return;
+      if (this.ctx.state === 'closed') return;
+  
       try {
         const now = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
+        const nodeItem = { osc, gain };
+  
+        this.activeNodes.add(nodeItem);
+  
+        // Clean disconnection once impulse completes
+        osc.onended = () => {
+          try {
+            osc.disconnect();
+            gain.disconnect();
+          } catch {}
+          this.activeNodes.delete(nodeItem);
+        };
   
         // High-frequency mechanical resonant metallic impulse
         osc.type = 'triangle';
@@ -1006,11 +1206,13 @@
    * Renders 24-hour UTC, Local Apparent Solar Time, and Sidereal Time with continuous sweeping hands.
    */
   
+  
+  
   class ChronometerDial {
     constructor(canvasElement, options = {}) {
       this.canvas = canvasElement;
       this.ctx = canvasElement.getContext('2d');
-      this.options = {
+      this.options = safeMerge({
         primaryGold: '#c8aa6e',
         goldLight: '#e8ca8e',
         goldDark: '#8f7645',
@@ -1018,9 +1220,8 @@
         platinumMuted: 'rgba(216, 226, 236, 0.35)',
         siderealBlue: '#4fa4e8',
         obsidian: '#090a0f',
-        dialPlate: '#0e1118',
-        ...options
-      };
+        dialPlate: '#0e1118'
+      }, options);
   
       this.width = 0;
       this.height = 0;
@@ -1516,11 +1717,12 @@
   
   
   
+  
   class WorldObservatory {
     constructor(canvasElement, options = {}) {
       this.canvas = canvasElement;
       this.ctx = canvasElement.getContext('2d');
-      this.options = {
+      this.options = safeMerge({
         primaryGold: '#c8aa6e',
         goldLight: '#e8ca8e',
         platinum: '#d8e2ec',
@@ -1530,9 +1732,8 @@
         oceanFill: '#0b0e14',
         gridColor: 'rgba(216, 226, 236, 0.08)',
         equatorColor: 'rgba(200, 170, 110, 0.25)',
-        tropicColor: 'rgba(200, 170, 110, 0.15)',
-        ...options
-      };
+        tropicColor: 'rgba(200, 170, 110, 0.15)'
+      }, options);
   
       this.observer = {
         lat: 51.4769,
@@ -2459,21 +2660,21 @@
   
   
   
+  
   class LunarComplication {
     constructor(canvasElement, telemetryContainer, options = {}) {
       this.canvas = canvasElement;
       this.ctx = canvasElement.getContext('2d');
       this.container = telemetryContainer;
-      this.options = {
+      this.options = safeMerge({
         primaryGold: '#c8aa6e',
         goldLight: '#e8ca8e',
         platinum: '#d8e2ec',
         deepSky: '#05070e',
         moonBright: '#eaf0f8',
         moonDark: '#121620',
-        craterColor: 'rgba(90, 105, 125, 0.28)',
-        ...options
-      };
+        craterColor: 'rgba(90, 105, 125, 0.28)'
+      }, options);
   
       this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
       this.resize();
@@ -2716,25 +2917,25 @@
   
       this.container.innerHTML = `
         <div class="lunar-telemetry-header">
-          <span class="lunar-phase-badge">${comp.phaseName.toUpperCase()}</span>
+          <span class="lunar-phase-badge">${escapeHTML(comp.phaseName.toUpperCase())}</span>
           <span class="lunar-orbit-dir">${comp.isWaxing ? '▲ WAXING' : '▼ WANING'}</span>
         </div>
         <div class="lunar-stat-grid">
           <div class="lunar-stat">
             <span class="stat-label">ILLUMINATION</span>
-            <span class="stat-value gold-glow">${comp.illuminationPercent}%</span>
+            <span class="stat-value gold-glow">${escapeHTML(comp.illuminationPercent)}%</span>
           </div>
           <div class="lunar-stat">
             <span class="stat-label">LUNAR AGE</span>
-            <span class="stat-value">${comp.lunarAgeDays.toFixed(1)} <small>d</small></span>
+            <span class="stat-value">${escapeHTML(comp.lunarAgeDays.toFixed(1))} <small>d</small></span>
           </div>
           <div class="lunar-stat">
             <span class="stat-label">NEXT FULL MOON</span>
-            <span class="stat-value">${fullDays}d ${fullHours}h</span>
+            <span class="stat-value">${escapeHTML(fullDays)}d ${escapeHTML(fullHours)}h</span>
           </div>
           <div class="lunar-stat">
             <span class="stat-label">NEXT NEW MOON</span>
-            <span class="stat-value">${newDays}d ${newHours}h</span>
+            <span class="stat-value">${escapeHTML(newDays)}d ${escapeHTML(newHours)}h</span>
           </div>
         </div>
       `;
@@ -2750,6 +2951,7 @@
    * Displays high-precision solar telemetry: solar noon, golden hour,
    * civil/nautical/astronomical dawn & dusk, and interactive Equation of Time analemma.
    */
+  
   
   
   
@@ -2827,11 +3029,11 @@
                 <span class="icon">☀️</span> SOLAR MERIDIAN TRANSIT
               </div>
               <div class="telemetry-card-main">
-                <span class="telemetry-highlight gold-glow">${this.formatTime(telemetry.solarNoonUTC)}</span>
+                <span class="telemetry-highlight gold-glow">${escapeHTML(this.formatTime(telemetry.solarNoonUTC))}</span>
               </div>
               <div class="telemetry-subdata">
-                <div>Transit Altitude: <strong>${telemetry.solarElevationAtNoonDeg.toFixed(1)}°</strong></div>
-                <div>Declination: <strong>${solarPos.declinationDeg >= 0 ? '+' : ''}${solarPos.declinationDeg.toFixed(2)}°</strong></div>
+                <div>Transit Altitude: <strong>${escapeHTML(telemetry.solarElevationAtNoonDeg.toFixed(1))}°</strong></div>
+                <div>Declination: <strong>${solarPos.declinationDeg >= 0 ? '+' : ''}${escapeHTML(solarPos.declinationDeg.toFixed(2))}°</strong></div>
               </div>
             </div>
   
@@ -2842,15 +3044,15 @@
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Sunrise</span>
-                <span class="field-value">${this.formatTime(telemetry.sunriseUTC)}</span>
+                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunriseUTC))}</span>
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Sunset</span>
-                <span class="field-value">${this.formatTime(telemetry.sunsetUTC)}</span>
+                <span class="field-value">${escapeHTML(this.formatTime(telemetry.sunsetUTC))}</span>
               </div>
               <div class="telemetry-row">
                 <span class="field-label">Day Length</span>
-                <span class="field-value platinum-glow">${telemetry.dayLengthHours.toFixed(2)} hrs</span>
+                <span class="field-value platinum-glow">${escapeHTML(telemetry.dayLengthHours.toFixed(2))} hrs</span>
               </div>
             </div>
   
@@ -2862,15 +3064,15 @@
               <div class="telemetry-twilight-grid">
                 <div class="twilight-phase">
                   <span class="twilight-tag">CIVIL (0° to −6°)</span>
-                  <span class="twilight-val">${this.formatTime(telemetry.civilDawnUTC)} / ${this.formatTime(telemetry.civilDuskUTC)}</span>
+                  <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.civilDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.civilDuskUTC))}</span>
                 </div>
                 <div class="twilight-phase">
                   <span class="twilight-tag">NAUTICAL (−6° to −12°)</span>
-                  <span class="twilight-val">${this.formatTime(telemetry.nauticalDawnUTC)} / ${this.formatTime(telemetry.nauticalDuskUTC)}</span>
+                  <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.nauticalDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.nauticalDuskUTC))}</span>
                 </div>
                 <div class="twilight-phase">
                   <span class="twilight-tag">ASTRONOMICAL (−12° to −18°)</span>
-                  <span class="twilight-val">${this.formatTime(telemetry.astronomicalDawnUTC)} / ${this.formatTime(telemetry.astronomicalDuskUTC)}</span>
+                  <span class="twilight-val">${escapeHTML(this.formatTime(telemetry.astronomicalDawnUTC))} / ${escapeHTML(this.formatTime(telemetry.astronomicalDuskUTC))}</span>
                 </div>
               </div>
             </div>
@@ -2881,8 +3083,8 @@
                 <span class="icon">⏱️</span> EQUATION OF TIME (EoT)
               </div>
               <div class="eot-main-row">
-                <span class="eot-value gold-glow">${eotFormatted}</span>
-                <span class="eot-status">${eotAheadBehind}</span>
+                <span class="eot-value gold-glow">${escapeHTML(eotFormatted)}</span>
+                <span class="eot-status">${escapeHTML(eotAheadBehind)}</span>
               </div>
               <div class="eot-explanation">
                 Difference between True Apparent Sundial Time and Uniform Mean Clock Time.
@@ -2985,6 +3187,7 @@
   
   
   
+  
   class TimeScrubber {
     constructor(containerElement, timeController) {
       this.container = containerElement;
@@ -3018,7 +3221,7 @@
               <label for="epochPreset">CELESTIAL EPOCH:</label>
               <select id="epochPreset" class="meridian-select">
                 ${PRESET_EPOCHS.map((p, idx) => `
-                  <option value="${p.iso || 'realtime'}" ${idx === 0 ? 'selected' : ''}>${p.label}</option>
+                  <option value="${escapeHTML(p.iso || 'realtime')}" ${idx === 0 ? 'selected' : ''}>${escapeHTML(p.label)}</option>
                 `).join('')}
               </select>
             </div>
@@ -3219,7 +3422,7 @@
       // Play/Pause button
       const btnPlayPause = c.querySelector('#btnPlayPause');
       if (btnPlayPause) {
-        btnPlayPause.innerHTML = isPlaying ? '❚❚ PAUSE' : '▶ PLAY';
+        btnPlayPause.textContent = isPlaying ? '❚❚ PAUSE' : '▶ PLAY';
       }
   
       // Direction buttons
@@ -3268,12 +3471,13 @@
   
   
   
+  
   class SkyDomeModal {
     constructor(modalElement, canvasElement, options = {}) {
       this.modal = modalElement;
       this.canvas = canvasElement;
       this.ctx = canvasElement.getContext('2d');
-      this.options = {
+      this.options = safeMerge({
         primaryGold: '#c8aa6e',
         goldBright: '#e8ca8e',
         platinum: '#d8e2ec',
@@ -3281,9 +3485,8 @@
         deepSpace: '#05070d',
         gridColor: 'rgba(216, 226, 236, 0.10)',
         meridianColor: 'rgba(200, 170, 110, 0.35)',
-        horizonColor: 'rgba(200, 170, 110, 0.8)',
-        ...options
-      };
+        horizonColor: 'rgba(200, 170, 110, 0.8)'
+      }, options);
   
       this.isOpen = false;
       this.hoveredObject = null;
@@ -3763,8 +3966,8 @@
         const pad = (n) => String(n).padStart(2, '0');
   
         infoEl.innerHTML = `
-          <strong>${obs.name}</strong> [${latFmt}, ${lonFmt}] &bull;
-          LMST: <span class="gold-glow">${pad(lmstH)}:${pad(lmstM)}</span>
+          <strong>${escapeHTML(obs.name)}</strong> [${escapeHTML(latFmt)}, ${escapeHTML(lonFmt)}] &bull;
+          LMST: <span class="gold-glow">${escapeHTML(pad(lmstH))}:${escapeHTML(pad(lmstM))}</span>
         `;
       }
     }
@@ -3779,6 +3982,7 @@
    * Orchestrates 60fps astronomical engine loop, high-precision chronometer dial,
    * world solar observatory, lunar complication, celestial telemetry, and time scrubber.
    */
+  
   
   
   
@@ -3831,7 +4035,7 @@
       // Populate preset observatories in header dropdown
       if (this.observatorySelect) {
         this.observatorySelect.innerHTML = PRESET_OBSERVATORIES.map((obs) => `
-          <option value="${obs.id}">${obs.name} (${obs.country})</option>
+          <option value="${escapeHTML(obs.id)}">${escapeHTML(obs.name)} (${escapeHTML(obs.country)})</option>
         `).join('');
       }
     }
@@ -4008,13 +4212,13 @@
         date.getUTCMilliseconds() / 3600000.0;
   
       if (this.utcReadout) {
-        this.utcReadout.innerHTML = `${this.formatHMS(utcDecimalHours, true)} <small>UTC</small>`;
+        this.utcReadout.innerHTML = `${escapeHTML(this.formatHMS(utcDecimalHours, true))} <small>UTC</small>`;
       }
       if (this.solarReadout) {
-        this.solarReadout.innerHTML = `${this.formatHMS(solarTime.apparentHours, false)} <small>SOLAR</small>`;
+        this.solarReadout.innerHTML = `${escapeHTML(this.formatHMS(solarTime.apparentHours, false))} <small>SOLAR</small>`;
       }
       if (this.siderealReadout) {
-        this.siderealReadout.innerHTML = `${this.formatHMS(siderealHours, false)} <small>LMST</small>`;
+        this.siderealReadout.innerHTML = `${escapeHTML(this.formatHMS(siderealHours, false))} <small>LMST</small>`;
       }
   
       // 6. Mechanical escapement audio pulse on second boundary

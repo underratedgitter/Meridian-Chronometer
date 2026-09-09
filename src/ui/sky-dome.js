@@ -12,13 +12,14 @@ import {
   getLunarComplication,
   getLMST
 } from '../engine/astronomy.js';
+import { escapeHTML, safeMerge } from '../engine/sanitizer.js';
 
 export class SkyDomeModal {
   constructor(modalElement, canvasElement, options = {}) {
     this.modal = modalElement;
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
-    this.options = {
+    this.options = safeMerge({
       primaryGold: '#c8aa6e',
       goldBright: '#e8ca8e',
       platinum: '#d8e2ec',
@@ -26,9 +27,8 @@ export class SkyDomeModal {
       deepSpace: '#05070d',
       gridColor: 'rgba(216, 226, 236, 0.10)',
       meridianColor: 'rgba(200, 170, 110, 0.35)',
-      horizonColor: 'rgba(200, 170, 110, 0.8)',
-      ...options
-    };
+      horizonColor: 'rgba(200, 170, 110, 0.8)'
+    }, options);
 
     this.isOpen = false;
     this.hoveredObject = null;
@@ -508,8 +508,8 @@ export class SkyDomeModal {
       const pad = (n) => String(n).padStart(2, '0');
 
       infoEl.innerHTML = `
-        <strong>${obs.name}</strong> [${latFmt}, ${lonFmt}] &bull;
-        LMST: <span class="gold-glow">${pad(lmstH)}:${pad(lmstM)}</span>
+        <strong>${escapeHTML(obs.name)}</strong> [${escapeHTML(latFmt)}, ${escapeHTML(lonFmt)}] &bull;
+        LMST: <span class="gold-glow">${escapeHTML(pad(lmstH))}:${escapeHTML(pad(lmstM))}</span>
       `;
     }
   }
