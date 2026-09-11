@@ -40,18 +40,43 @@
    * @returns {Record<string, any>}
    */
   function safeMerge(defaults = {}, options = {}) {
-    const clean = Object.create(null);
-    if (defaults && typeof defaults === 'object') {
-      Object.assign(clean, defaults);
-    }
-    if (options && typeof options === 'object') {
-      for (const key of Object.keys(options)) {
-        if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
-          clean[key] = options[key];
-        }
+    const BLOCKED = new Set(['__proto__', 'constructor', 'prototype']);
+  
+    function sanitizeValue(value, seen = new WeakMap(), depth = 0) {
+      if (depth > 20) return value;
+      if (Array.isArray(value)) {
+        if (seen.has(value)) return seen.get(value);
+        const arr = [];
+        seen.set(value, arr);
+        for (const item of value) arr.push(sanitizeValue(item, seen, depth + 1));
+        return arr;
       }
+      if (value && typeof value === 'object') {
+        const proto = Object.getPrototypeOf(value);
+        if (proto !== Object.prototype && proto !== null) return value;
+        if (seen.has(value)) return seen.get(value);
+        const out = {};
+        seen.set(value, out);
+        for (const key of Object.keys(value)) {
+          if (!BLOCKED.has(key)) {
+            out[key] = sanitizeValue(value[key], seen, depth + 1);
+          }
+        }
+        for (const sym of Object.getOwnPropertySymbols(value)) {
+          if (Object.prototype.propertyIsEnumerable.call(value, sym)) {
+            out[sym] = sanitizeValue(value[sym], seen, depth + 1);
+          }
+        }
+        return out;
+      }
+      return value;
     }
-    return { ...clean };
+  
+    const a = defaults && typeof defaults === 'object' ? sanitizeValue(defaults) : {};
+    const b = options && typeof options === 'object' ? sanitizeValue(options) : {};
+    const cleanA = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+    const cleanB = b && typeof b === 'object' && !Array.isArray(b) ? b : {};
+    return { ...cleanA, ...cleanB };
   }
   
 
@@ -134,7 +159,8 @@
    */
   function getLMST(date, longitudeDeg) {
     const gmst = getGMST(date);
-    const offsetHours = longitudeDeg / 15.0;
+    const lonNum = Number(longitudeDeg);
+    const offsetHours = Number.isFinite(lonNum) ? lonNum / 15.0 : 0;
     return normalizeHours(gmst + offsetHours);
   }
   
@@ -226,17 +252,21 @@
   
   /**
    * Calculates Local Solar Time (Mean and Apparent) in hours [0, 24).
+   * Invalid dates fall back to 12:00 UTC rather than propagating NaN.
    */
   function getLocalSolarTime(date, longitudeDeg) {
-    const d = date instanceof Date ? date : new Date(date);
-    const utcHours =
+    const d = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date(Date.UTC(2000, 0, 1, 12, 0, 0));
+    let utcHours =
       d.getUTCHours() +
       d.getUTCMinutes() / 60.0 +
       d.getUTCSeconds() / 3600.0 +
       d.getUTCMilliseconds() / 3600000.0;
+    if (!Number.isFinite(utcHours)) utcHours = 12.0;
   
     const { equationOfTimeMinutes } = getSolarPosition(d);
-    const meanHours = normalizeHours(utcHours + longitudeDeg / 15.0);
+    const lonNum = Number(longitudeDeg);
+    const lonOffset = Number.isFinite(lonNum) ? lonNum / 15.0 : 0;
+    const meanHours = normalizeHours(utcHours + lonOffset);
     const apparentHours = normalizeHours(meanHours + equationOfTimeMinutes / 60.0);
   
     return {
@@ -329,8 +359,8 @@
       sunriseUTC: solarTimes.rise,
       sunsetUTC: solarTimes.set,
       dayLengthHours: dayLengthMs / 3600000.0,
-      solarElevationAtNoonDeg: 90 - Math.abs(latitudeDeg - declinationDeg),
-      goldenHourEndMorningUTC: goldenHourTimes.set ? goldenHourTimes.rise : null,
+      solarElevationAtNoonDeg: 90 - Math.abs(latDeg - declinationDeg),
+      goldenHourEndMorningUTC: goldenHourTimes.rise,
       goldenHourStartEveningUTC: goldenHourTimes.set,
       civilDawnUTC: civilTimes.rise,
       civilDuskUTC: civilTimes.set,
@@ -435,20 +465,26 @@
    * Uses robust spherical small/great circle geometry avoiding any division-by-zero singularities.
    */
   function getTerminatorPoints(date, numPoints = 360, altitudeDeg = 0) {
+    const count = (() => {
+      const n = Math.floor(Number(numPoints));
+      if (!Number.isFinite(n)) return 360;
+      return Math.max(3, Math.min(720, n));
+    })();
+    const alt = Number.isFinite(Number(altitudeDeg)) ? Number(altitudeDeg) : 0;
     const { subsolarPoint } = getSolarPosition(date);
     const phiSRad = subsolarPoint.latitudeDeg * DEG2RAD;
     const lambdaSDeg = subsolarPoint.longitudeDeg;
   
     // Angular radius of circle from subsolar point on sphere: psi = 90° - altitudeDeg
-    const psiRad = (90.0 - altitudeDeg) * DEG2RAD;
+    const psiRad = (90.0 - alt) * DEG2RAD;
     const sinPsi = Math.sin(psiRad);
     const cosPsi = Math.cos(psiRad);
     const sinPhiS = Math.sin(phiSRad);
     const cosPhiS = Math.cos(phiSRad);
   
     const points = [];
-    for (let i = 0; i < numPoints; i++) {
-      const alpha = (i / numPoints) * 2.0 * Math.PI;
+    for (let i = 0; i < count; i++) {
+      const alpha = (i / count) * 2.0 * Math.PI;
       // Spherical trigonometry small/great circle formula
       const sinPhi = sinPhiS * cosPsi + cosPhiS * sinPsi * Math.cos(alpha);
       const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));
@@ -954,13 +990,14 @@
   
     /**
      * Sets simulation speed multiplier (e.g. 1, 60, 3600, 86400).
+     * Clamped to [0.1, 86400] to match UI rates and prevent runaway jumps.
      */
     setSpeed(multiplier) {
       let speed = Number(multiplier);
       if (!Number.isFinite(speed) || speed < 0.1) {
         speed = 1;
       }
-      this.speedMultiplier = Math.max(0.1, speed);
+      this.speedMultiplier = Math.min(86400, Math.max(0.1, speed));
       if (this.speedMultiplier !== 1 && this.isRealtime) {
         // Switching to accelerated speed automatically moves from realtime to simulated
         this.isRealtime = false;
@@ -1030,6 +1067,7 @@
   
     /**
      * Advances time based on elapsed real-world milliseconds.
+     * Non-finite or negative elapsed values are ignored (defensive).
      */
     tick(realElapsedMs) {
       if (!this.isPlaying) return;
@@ -1038,11 +1076,12 @@
         this.simulatedTimeMs = Date.now();
       } else {
         const elapsed = Number(realElapsedMs);
-        if (Number.isFinite(elapsed)) {
-          const deltaSimMs = elapsed * this.speedMultiplier * this.direction;
-          if (Number.isFinite(deltaSimMs)) {
-            this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + deltaSimMs));
-          }
+        if (!Number.isFinite(elapsed) || elapsed < 0) {
+          return;
+        }
+        const deltaSimMs = elapsed * this.speedMultiplier * this.direction;
+        if (Number.isFinite(deltaSimMs)) {
+          this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + deltaSimMs));
         }
       }
   
@@ -1208,6 +1247,61 @@
   
   
   
+  const DIAL_THEMES = {
+    titanium: {
+      primaryGold: '#c8aa6e',
+      goldLight: '#e8ca8e',
+      goldDark: '#8f7645',
+      platinum: '#d8e2ec',
+      platinumMuted: 'rgba(216, 226, 236, 0.35)',
+      siderealBlue: '#4fa4e8',
+      obsidian: '#090a0f',
+      dialPlate: '#0e1118',
+      lumeColor: '#38ef7d',
+      guillocheColor: 'rgba(216, 226, 236, 0.04)',
+      secondsColor: '#e27d60'
+    },
+    rosegold: {
+      primaryGold: '#e09f67',
+      goldLight: '#f7c99e',
+      goldDark: '#9e6435',
+      platinum: '#f7ede2',
+      platinumMuted: 'rgba(247, 237, 226, 0.35)',
+      siderealBlue: '#e67e56',
+      obsidian: '#120c0e',
+      dialPlate: '#181215',
+      lumeColor: '#48cfad',
+      guillocheColor: 'rgba(224, 159, 103, 0.05)',
+      secondsColor: '#f25c54'
+    },
+    platinum: {
+      primaryGold: '#9bb7d4',
+      goldLight: '#d2e4f7',
+      goldDark: '#587494',
+      platinum: '#ffffff',
+      platinumMuted: 'rgba(240, 244, 248, 0.38)',
+      siderealBlue: '#2b7fff',
+      obsidian: '#0a0e17',
+      dialPlate: '#101622',
+      lumeColor: '#2ecc71',
+      guillocheColor: 'rgba(255, 255, 255, 0.045)',
+      secondsColor: '#4090ff'
+    },
+    monolith: {
+      primaryGold: '#39ff88',
+      goldLight: '#6effa7',
+      goldDark: '#1ea354',
+      platinum: '#dffced',
+      platinumMuted: 'rgba(57, 255, 136, 0.35)',
+      siderealBlue: '#00f0ff',
+      obsidian: '#050608',
+      dialPlate: '#0a0d12',
+      lumeColor: '#39ff88',
+      guillocheColor: 'rgba(57, 255, 136, 0.045)',
+      secondsColor: '#ffb300'
+    }
+  };
+  
   class ChronometerDial {
     constructor(canvasElement, options = {}) {
       this.canvas = canvasElement;
@@ -1220,16 +1314,24 @@
         platinumMuted: 'rgba(216, 226, 236, 0.35)',
         siderealBlue: '#4fa4e8',
         obsidian: '#090a0f',
-        dialPlate: '#0e1118'
+        dialPlate: '#0e1118',
+        lumeColor: '#38ef7d',
+        guillocheColor: 'rgba(216, 226, 236, 0.04)',
+        secondsColor: '#e27d60'
       }, options);
   
       this.width = 0;
       this.height = 0;
       this.radius = 0;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.isLowPowerMode = false;
   
       this.resize();
+    }
+  
+    setTheme(themeName) {
+      const palette = DIAL_THEMES[themeName] || DIAL_THEMES.titanium;
+      this.options = safeMerge(this.options, palette);
     }
   
     setLowPowerMode(enabled) {
@@ -1240,7 +1342,8 @@
       const rect = this.canvas.getBoundingClientRect();
       this.width = rect.width || 380;
       this.height = rect.height || 380;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      // Cap DPR at 2 to bound canvas memory on high-density / 8K displays
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   
       this.canvas.width = Math.round(this.width * this.dpr);
       this.canvas.height = Math.round(this.height * this.dpr);
@@ -1255,6 +1358,8 @@
      *   times.siderealHours: number [0, 24)
      */
     render(times) {
+      if (!times || !(times.utcDate instanceof Date) || !Number.isFinite(times.utcDate.getTime())) return;
+      if (!Number.isFinite(Number(times.solarApparentHours)) || !Number.isFinite(Number(times.siderealHours))) return;
       const ctx = this.ctx;
       const dpr = this.dpr;
       const w = this.canvas.width;
@@ -1303,6 +1408,9 @@
       // Center Jewel Pinion Cap
       this.drawCenterPinion(ctx, cx, cy, r);
   
+      // Anti-Reflective Curved Sapphire Crystal Reflection
+      this.drawSapphireCrystalGlare(ctx, cx, cy, r);
+  
       ctx.restore();
     }
   
@@ -1311,14 +1419,17 @@
   
       // Dial background gradient
       const bgGrad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
-      bgGrad.addColorStop(0, '#131824');
-      bgGrad.addColorStop(0.7, '#0b0e14');
-      bgGrad.addColorStop(1, '#07080c');
+      bgGrad.addColorStop(0, opt.dialPlate || '#131824');
+      bgGrad.addColorStop(0.7, opt.obsidian || '#0b0e14');
+      bgGrad.addColorStop(1, '#05070a');
   
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fillStyle = bgGrad;
       ctx.fill();
+  
+      // Subtle Haute Horlogerie engine-turned guilloché wave pattern
+      this.drawGuillochePattern(ctx, cx, cy, r);
   
       // Outer machined titanium & platinum rings
       ctx.lineWidth = Math.max(1, 2 * this.dpr);
@@ -1335,6 +1446,67 @@
       ctx.arc(cx, cy, r - 7 * this.dpr, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(200, 170, 110, 0.18)';
       ctx.stroke();
+    }
+  
+    drawGuillochePattern(ctx, cx, cy, r) {
+      if (this.isLowPowerMode) return;
+      const dpr = this.dpr;
+      const opt = this.options;
+      ctx.save();
+      ctx.strokeStyle = opt.guillocheColor || 'rgba(216, 226, 236, 0.04)';
+      ctx.lineWidth = Math.max(0.5, 0.65 * dpr);
+  
+      // Concentric engine-turned guilloché waves
+      const ringCount = 24;
+      for (let i = 4; i < ringCount; i++) {
+        const ringR = (i / ringCount) * (r * 0.88);
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+  
+      // 36 Radial sunburst fluting rays
+      for (let a = 0; a < 36; a++) {
+        const rad = (a / 36) * Math.PI * 2;
+        const x1 = cx + Math.cos(rad) * (r * 0.36);
+        const y1 = cy + Math.sin(rad) * (r * 0.36);
+        const x2 = cx + Math.cos(rad) * (r * 0.92);
+        const y2 = cy + Math.sin(rad) * (r * 0.92);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  
+    drawSapphireCrystalGlare(ctx, cx, cy, r) {
+      if (this.isLowPowerMode) return;
+      const dpr = this.dpr;
+      ctx.save();
+  
+      // Double-domed anti-reflective sapphire crystal reflection highlight
+      const glareGrad = ctx.createLinearGradient(cx - r * 0.8, cy - r * 0.8, cx + r * 0.5, cy + r * 0.5);
+      glareGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+      glareGrad.addColorStop(0.32, 'rgba(255, 255, 255, 0.03)');
+      glareGrad.addColorStop(0.38, 'rgba(255, 255, 255, 0.08)');
+      glareGrad.addColorStop(0.40, 'rgba(79, 164, 232, 0.08)'); // anti-reflective blue-violet sheen
+      glareGrad.addColorStop(0.44, 'rgba(255, 255, 255, 0.02)');
+      glareGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+  
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 2 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = glareGrad;
+      ctx.fill();
+  
+      // Subtle edge bevel reflection
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 3 * dpr, -Math.PI * 0.75, -Math.PI * 0.2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+  
+      ctx.restore();
     }
   
     drawUtcChapterRing(ctx, cx, cy, r) {
@@ -1372,6 +1544,20 @@
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(String(h).padStart(2, '0'), tx, ty);
+  
+          // Super-LumiNova photoluminescent pip
+          const pipR = r - 15.5 * dpr;
+          const px = cx + Math.cos(angle) * pipR;
+          const py = cy + Math.sin(angle) * pipR;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.35 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = opt.lumeColor || '#38ef7d';
+          if (!this.isLowPowerMode) {
+            ctx.shadowColor = opt.lumeColor || '#38ef7d';
+            ctx.shadowBlur = 3 * dpr;
+          }
+          ctx.fill();
+          ctx.shadowBlur = 0;
         }
       }
   
@@ -1664,8 +1850,10 @@
     }
   
     drawSecondsHand(ctx, cx, cy, length, seconds) {
+      const opt = this.options;
       const dpr = this.dpr;
       const angle = (seconds / 60.0) * Math.PI * 2 - Math.PI / 2;
+      const secColor = opt.secondsColor || '#e27d60';
   
       ctx.save();
       ctx.translate(cx, cy);
@@ -1676,13 +1864,13 @@
       ctx.moveTo(0, 16 * dpr); // counterweight tail
       ctx.lineTo(0, -length);
       ctx.lineWidth = 0.9 * dpr;
-      ctx.strokeStyle = '#e27d60'; // warm flame-treated terracotta
+      ctx.strokeStyle = secColor;
       ctx.stroke();
   
       // Counterweight circle
       ctx.beginPath();
       ctx.arc(0, 16 * dpr, 2.5 * dpr, 0, Math.PI * 2);
-      ctx.fillStyle = '#e27d60';
+      ctx.fillStyle = secColor;
       ctx.fill();
   
       ctx.restore();
@@ -1767,7 +1955,7 @@
       this.dragStartPos = null;
       this.dragStartGlobe = null;
       this.totalDragDist = 0;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.isLowPowerMode = false;
   
       this.setupInteractivity();
@@ -1782,7 +1970,8 @@
       const rect = this.canvas.getBoundingClientRect();
       this.width = rect.width || 600;
       this.height = rect.height || 300;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      // Cap DPR at 2 to bound canvas memory
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   
       this.canvas.width = Math.round(this.width * this.dpr);
       this.canvas.height = Math.round(this.height * this.dpr);
@@ -1790,6 +1979,8 @@
       // Invalidate cached shadow map so it recreates if needed
       this.shadowCanvas = null;
       this.shadowImageData = null;
+      this._twilightKey = null;
+      this._orthoShadowKey = null;
     }
   
     setProjectionMode(mode) {
@@ -1802,9 +1993,12 @@
     }
   
     setObserver(lat, lon, name = 'Custom Observer') {
-      this.observer.lat = Math.max(-90, Math.min(90, lat));
-      this.observer.lon = Math.max(-180, Math.min(180, lon));
-      this.observer.name = name;
+      this.observer.lat = Math.max(-90, Math.min(90, Number(lat)));
+      this.observer.lon = Math.max(-180, Math.min(180, Number(lon)));
+      // Truncate display name to prevent canvas overflow / label spoofing
+      this.observer.name = String(name ?? 'Custom Observer').slice(0, 48);
+      if (Number.isNaN(this.observer.lat)) this.observer.lat = 0;
+      if (Number.isNaN(this.observer.lon)) this.observer.lon = 0;
       if (this.onObserverChange) {
         this.onObserverChange(this.observer);
       }
@@ -2212,6 +2406,9 @@
         this.orthoShadowData = this.orthoShadowCtx.createImageData(this.orthoShadowW, this.orthoShadowH);
       }
   
+      const orthoKey = `${Math.round(centerLon * 4)}:${Math.round(centerLat * 4)}:${Math.round(sunPhiRad * 57.2958 * 4)}:${Math.round(sunLamRad * 57.2958 * 4)}`;
+      if (this._orthoShadowKey !== orthoKey) {
+        this._orthoShadowKey = orthoKey;
       const sw = this.orthoShadowW;
       const sh = this.orthoShadowH;
       const sRadius = sw / 2;
@@ -2278,6 +2475,7 @@
       }
   
       this.orthoShadowCtx.putImageData(this.orthoShadowData, 0, 0);
+      }
   
       ctx.save();
       ctx.imageSmoothingEnabled = true;
@@ -2398,6 +2596,10 @@
       }
   
       if (this.shadowImageData) {
+        // Memoize 64k-pixel shadow: recompute only when subsolar moves >0.1°
+        const shadowKey = `${Math.round(subsolarPoint.latitudeDeg * 10)}:${Math.round(subsolarPoint.longitudeDeg * 10)}`;
+        if (this._twilightKey !== shadowKey) {
+          this._twilightKey = shadowKey;
         const buf = this.shadowImageData.data;
         const sw = this.shadowW;
         const sh = this.shadowH;
@@ -2447,6 +2649,7 @@
         }
   
         this.shadowCtx.putImageData(this.shadowImageData, 0, 0);
+        }
   
         ctx.save();
         ctx.imageSmoothingEnabled = true;
@@ -2701,15 +2904,26 @@
         craterColor: 'rgba(90, 105, 125, 0.28)'
       }, options);
   
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.resize();
+    }
+  
+    setTheme(themeName) {
+      const palettes = {
+        titanium: { primaryGold: '#c8aa6e', goldLight: '#e8ca8e', platinum: '#d8e2ec' },
+        rosegold: { primaryGold: '#e09f67', goldLight: '#f7c99e', platinum: '#f7ede2' },
+        platinum: { primaryGold: '#9bb7d4', goldLight: '#d2e4f7', platinum: '#ffffff' },
+        monolith: { primaryGold: '#39ff88', goldLight: '#6effa7', platinum: '#dffced' }
+      };
+      const p = palettes[themeName] || palettes.titanium;
+      this.options = safeMerge(this.options, p);
     }
   
     resize() {
       const rect = this.canvas.getBoundingClientRect();
       this.width = rect.width || 180;
       this.height = rect.height || 180;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   
       this.canvas.width = Math.round(this.width * this.dpr);
       this.canvas.height = Math.round(this.height * this.dpr);
@@ -2736,6 +2950,9 @@
   
       // 3. Complication Bezel & Graduated Indices
       this.drawComplicationBezel(ctx, cx, cy, r, dpr);
+  
+      // 4. Anti-Reflective Curved Sapphire Crystal Reflection
+      this.drawSapphireCrystalGlare(ctx, cx, cy, r, dpr);
   
       ctx.restore();
   
@@ -2931,14 +3148,39 @@
       }
     }
   
+    drawSapphireCrystalGlare(ctx, cx, cy, r, dpr) {
+      ctx.save();
+      const glareGrad = ctx.createLinearGradient(cx - r * 0.8, cy - r * 0.8, cx + r * 0.6, cy + r * 0.6);
+      glareGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+      glareGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.03)');
+      glareGrad.addColorStop(0.40, 'rgba(255, 255, 255, 0.07)');
+      glareGrad.addColorStop(0.43, 'rgba(79, 164, 232, 0.08)');
+      glareGrad.addColorStop(0.48, 'rgba(255, 255, 255, 0.0)');
+      glareGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+  
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 1.5 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = glareGrad;
+      ctx.fill();
+      ctx.restore();
+    }
+  
     updateTelemetry(comp) {
       if (!this.container) return;
   
-      const fullDays = Math.floor(comp.daysToNextFullMoon);
-      const fullHours = Math.round((comp.daysToNextFullMoon - fullDays) * 24);
+      let fullDays = Math.floor(comp.daysToNextFullMoon);
+      let fullHours = Math.round((comp.daysToNextFullMoon - fullDays) * 24);
+      if (fullHours >= 24) {
+        fullDays += 1;
+        fullHours -= 24;
+      }
   
-      const newDays = Math.floor(comp.daysToNextNewMoon);
-      const newHours = Math.round((comp.daysToNextNewMoon - newDays) * 24);
+      let newDays = Math.floor(comp.daysToNextNewMoon);
+      let newHours = Math.round((comp.daysToNextNewMoon - newDays) * 24);
+      if (newHours >= 24) {
+        newDays += 1;
+        newHours -= 24;
+      }
   
       this.container.innerHTML = `
         <div class="lunar-telemetry-header">
@@ -2990,7 +3232,7 @@
       this.lastObserverName = '';
       this.width = 0;
       this.height = 0;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.isLowPowerMode = false;
       this.resize();
     }
@@ -3004,7 +3246,7 @@
       const rect = this.analemmaCanvas.getBoundingClientRect();
       this.width = rect.width || 280;
       this.height = rect.height || 180;
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.analemmaCanvas.width = Math.round(this.width * this.dpr);
       this.analemmaCanvas.height = Math.round(this.height * this.dpr);
     }
@@ -3032,10 +3274,15 @@
     }
   
     formatEoT(minutes) {
+      if (!Number.isFinite(Number(minutes))) return '+0m 00s';
       const sign = minutes >= 0 ? '+' : '−';
       const absMin = Math.abs(minutes);
-      const m = Math.floor(absMin);
-      const s = Math.round((absMin - m) * 60);
+      let m = Math.floor(absMin);
+      let s = Math.round((absMin - m) * 60);
+      if (s >= 60) {
+        m += 1;
+        s -= 60;
+      }
       return `${sign}${m}m ${String(s).padStart(2, '0')}s`;
     }
   
@@ -3267,6 +3514,34 @@
             </button>
           </div>
   
+          <!-- Tactile Celestial Epoch Presets Horizon -->
+          <div class="epoch-horizon-bar" role="toolbar" aria-label="Quick Celestial Epoch Navigation">
+            <span class="epoch-horizon-label">CELESTIAL JUMPS:</span>
+            <div class="epoch-pills-row">
+              <button class="epoch-pill ${this.controller.isRealtime ? 'active' : ''}" data-epoch="realtime" type="button" title="Synchronize with Live System UTC">
+                <span class="epoch-pill-icon">⏱️</span> REALTIME UTC
+              </button>
+              <button class="epoch-pill" data-epoch="2024-06-20T20:51:00Z" type="button" title="Summer Solstice 2024">
+                <span class="epoch-pill-icon">☀️</span> SUMMER SOLSTICE
+              </button>
+              <button class="epoch-pill" data-epoch="2024-12-21T09:21:00Z" type="button" title="Winter Solstice 2024">
+                <span class="epoch-pill-icon">❄️</span> WINTER SOLSTICE
+              </button>
+              <button class="epoch-pill" data-epoch="2024-03-20T03:06:00Z" type="button" title="Vernal Equinox 2024">
+                <span class="epoch-pill-icon">🌸</span> VERNAL EQUINOX
+              </button>
+              <button class="epoch-pill" data-epoch="2024-09-22T12:44:00Z" type="button" title="Autumnal Equinox 2024">
+                <span class="epoch-pill-icon">🍂</span> AUTUMNAL EQUINOX
+              </button>
+              <button class="epoch-pill" data-epoch="2024-04-08T18:18:00Z" type="button" title="Great North American Total Solar Eclipse 2024">
+                <span class="epoch-pill-icon">🌑</span> TOTAL SOLAR ECLIPSE
+              </button>
+              <button class="epoch-pill" data-epoch="1969-07-20T20:17:40Z" type="button" title="Apollo 11 Tranquility Base Lunar Landing">
+                <span class="epoch-pill-icon">🚀</span> APOLLO 11 LANDING
+              </button>
+            </div>
+          </div>
+  
           <!-- 24-Hour Diurnal Timeline Slider -->
           <div class="scrubber-timeline-container">
             <div class="timeline-labels-row">
@@ -3318,6 +3593,26 @@
         this.updateUI();
       });
   
+      // Tactile Epoch Horizon Pills
+      const pills = c.querySelectorAll('.epoch-pill');
+      pills.forEach((pill) => {
+        pill.addEventListener('click', () => {
+          const epochVal = pill.getAttribute('data-epoch');
+          if (epochVal === 'realtime') {
+            this.controller.syncRealtime();
+          } else {
+            this.controller.setTime(new Date(epochVal));
+          }
+          pills.forEach((p) => p.classList.remove('active'));
+          pill.classList.add('active');
+          const selectPreset = c.querySelector('#epochPreset');
+          if (selectPreset) {
+            selectPreset.value = epochVal;
+          }
+          this.updateUI();
+        });
+      });
+  
       // Preset selector
       const selectPreset = c.querySelector('#epochPreset');
       selectPreset.addEventListener('change', (e) => {
@@ -3330,11 +3625,14 @@
         this.updateUI();
       });
   
-      // Direct Date Input
+      // Direct Date Input (datetime-local has no zone; interpret as UTC for consistency
+      // with updateUI which formats via getUTC*. Appending 'Z' avoids TZ-offset shift.)
       const dateInput = c.querySelector('#directDateTime');
       dateInput.addEventListener('change', (e) => {
         if (e.target.value) {
-          this.controller.setTime(new Date(e.target.value));
+          const val = e.target.value;
+          const asUtc = /[zZ]|[+-]\d{2}:?\d{2}$/.test(val) ? new Date(val) : new Date(`${val}Z`);
+          this.controller.setTime(asUtc);
           this.updateUI();
         }
       });
@@ -3443,11 +3741,19 @@
         speedText.textContent = `${this.controller.speedMultiplier}x ${this.controller.direction < 0 ? 'REV' : 'FWD'}`;
       }
   
-      // Latch button
+      // Latch button & epoch pills
       const btnSync = c.querySelector('#btnSyncRealtime');
       if (btnSync) {
         btnSync.className = `meridian-btn btn-latch ${isRt ? 'active' : ''}`;
       }
+  
+      const pills = c.querySelectorAll('.epoch-pill');
+      pills.forEach((pill) => {
+        const epochVal = pill.getAttribute('data-epoch');
+        if (isRt) {
+          pill.classList.toggle('active', epochVal === 'realtime');
+        }
+      });
   
       // Play/Pause button
       const btnPlayPause = c.querySelector('#btnPlayPause');
@@ -3522,7 +3828,7 @@
       this.hoveredObject = null;
       this.currentDate = new Date();
       this.currentObserver = { lat: 51.4769, lon: 0.0005, name: 'Royal Observatory Greenwich' };
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   
       this.initEvents();
       this.resize();
@@ -3532,7 +3838,7 @@
       if (!this.canvas) return;
       const rect = this.canvas.getBoundingClientRect();
       const size = Math.min(rect.width || 460, rect.height || 460);
-      this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       this.canvas.width = Math.round(size * this.dpr);
       this.canvas.height = Math.round(size * this.dpr);
       this.radius = (size / 2) * 0.88;
@@ -3575,8 +3881,16 @@
     }
   
     open(observer, date) {
-      this.currentObserver = observer;
-      this.currentDate = date;
+      if (observer && typeof observer === 'object') {
+        const lat = Math.max(-90, Math.min(90, Number(observer.lat)));
+        const lon = Math.max(-180, Math.min(180, Number(observer.lon)));
+        this.currentObserver = {
+          lat: Number.isNaN(lat) ? 0 : lat,
+          lon: Number.isNaN(lon) ? 0 : lon,
+          name: String(observer.name ?? 'Unknown').slice(0, 48)
+        };
+      }
+      this.currentDate = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date();
       this.isOpen = true;
       this.modal.classList.add('active');
       this.modal.setAttribute('aria-hidden', 'false');
@@ -3630,8 +3944,16 @@
     }
   
     render(date = null, observer = null) {
-      if (date) this.currentDate = date;
-      if (observer) this.currentObserver = observer;
+      if (date instanceof Date && Number.isFinite(date.getTime())) this.currentDate = date;
+      if (observer && typeof observer === 'object') {
+        const lat = Math.max(-90, Math.min(90, Number(observer.lat)));
+        const lon = Math.max(-180, Math.min(180, Number(observer.lon)));
+        this.currentObserver = {
+          lat: Number.isNaN(lat) ? this.currentObserver.lat : lat,
+          lon: Number.isNaN(lon) ? this.currentObserver.lon : lon,
+          name: String(observer.name ?? this.currentObserver.name ?? 'Unknown').slice(0, 48)
+        };
+      }
       if (!this.isOpen || !this.ctx) return;
   
       const ctx = this.ctx;
@@ -3831,7 +4153,12 @@
   
       this.cachedCelestialObjects = objects;
   
-      // Draw visible celestial bodies
+      // Draw visible celestial bodies, clipped to the horizon circle so
+      // below-horizon twilight sun (alt in [-18,0)) never paints outside the dome
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.clip();
       for (const obj of objects) {
         if (!obj.isVisible) continue;
   
@@ -3884,6 +4211,7 @@
         }
         ctx.restore();
       }
+      ctx.restore();
     }
   
     drawHorizonFrame(ctx, cx, cy, r, dpr) {
@@ -4025,6 +4353,18 @@
   
   
   
+  // Frame-busting: header frame-ancestors/X-Frame-Options protect http://,
+  // but <meta> cannot enforce them (spec) so file:// relies on this.
+  // External bundle (allowed by script-src 'self'), no inline script needed.
+  try {
+    if (typeof window !== 'undefined' && window.top !== window.self) {
+      try { document.documentElement.style.display = 'none'; } catch {}
+      window.top.location.replace(window.self.location.href);
+    }
+  } catch {
+    try { document.documentElement.style.display = 'none'; } catch {}
+  }
+  
   class MeridianObservatoryApp {
     constructor() {
       this.timeController = new TimeController();
@@ -4061,6 +4401,18 @@
       this.observatorySelect = document.getElementById('observatorySelect');
       this.audioToggleBtn = document.getElementById('audioToggleBtn');
   
+      // Horological finish selector & Fullscreen mode
+      this.themeSelect = document.getElementById('themeSelect');
+      this.btnFullscreen = document.getElementById('btnFullscreen');
+  
+      // Real-Time Astronomical Telemetry HUD Strip
+      this.hudJulianDate = document.getElementById('hudJulianDate');
+      this.hudGmst = document.getElementById('hudGmst');
+      this.hudSolarDecl = document.getElementById('hudSolarDecl');
+      this.hudEot = document.getElementById('hudEot');
+      this.hudSolarNoon = document.getElementById('hudSolarNoon');
+      this.hudSeason = document.getElementById('hudSeason');
+  
       // 3D globe projection toggle & sky dome buttons
       this.btnProj2D = document.getElementById('btnProj2D');
       this.btnProj3D = document.getElementById('btnProj3D');
@@ -4088,6 +4440,16 @@
         this.skyDomeModal = new SkyDomeModal(this.skyDomeModalEl, this.skyDomeCanvas);
       }
   
+      // Restore or initialize horological case finish (allowlisted to prevent CSS/attr injection)
+      let savedTheme = 'titanium';
+      try {
+        const stored = localStorage.getItem('meridian_theme');
+        if (stored === 'titanium' || stored === 'rosegold' || stored === 'platinum' || stored === 'monolith') {
+          savedTheme = stored;
+        }
+      } catch {}
+      this.setTheme(savedTheme);
+  
       // Sync observer change from map click to select dropdown & open sky dome
       this.worldObservatory.onObserverChange = (obs) => {
         this.updateObserverDisplay(obs);
@@ -4102,6 +4464,46 @@
           this.skyDomeModal.open(obs, this.timeController.getTime());
         }
       };
+    }
+  
+    setTheme(themeName) {
+      const allowed = new Set(['titanium', 'rosegold', 'platinum', 'monolith']);
+      const safeTheme = allowed.has(themeName) ? themeName : 'titanium';
+      this.currentTheme = safeTheme;
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', safeTheme);
+        if (this.themeSelect) {
+          this.themeSelect.value = safeTheme;
+        }
+        try {
+          localStorage.setItem('meridian_theme', safeTheme);
+        } catch {}
+      }
+      if (this.chronometerDial && typeof this.chronometerDial.setTheme === 'function') {
+        this.chronometerDial.setTheme(safeTheme);
+      }
+      if (this.lunarComplication && typeof this.lunarComplication.setTheme === 'function') {
+        this.lunarComplication.setTheme(safeTheme);
+      }
+    }
+  
+    toggleFullscreen() {
+      if (typeof document === 'undefined') return;
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+        if (this.btnFullscreen) {
+          this.btnFullscreen.classList.add('active');
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        if (this.btnFullscreen) {
+          this.btnFullscreen.classList.remove('active');
+        }
+      }
     }
   
     initAudio() {
@@ -4162,10 +4564,33 @@
         });
       }
   
+      // Horological finish theme selection
+      if (this.themeSelect) {
+        this.themeSelect.addEventListener('change', (e) => {
+          this.setTheme(e.target.value);
+        });
+      }
+  
+      // Fullscreen observatory mode toggle
+      if (this.btnFullscreen) {
+        this.btnFullscreen.addEventListener('click', () => {
+          this.toggleFullscreen();
+        });
+      }
+  
+      if (typeof document !== 'undefined') {
+        document.addEventListener('fullscreenchange', () => {
+          if (this.btnFullscreen) {
+            this.btnFullscreen.classList.toggle('active', Boolean(document.fullscreenElement));
+          }
+        });
+      }
+  
       // Keyboard shortcuts & hotkey interactions:
       // 'g' or 'm': toggle 2D Flat vs 3D Globe camera projection mode
       // 'd': toggle Local Zenith Sky Dome modal
       // 'a': toggle mechanical escapement audio
+      // 'f': toggle fullscreen mode
       window.addEventListener('keydown', (e) => {
         const tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -4192,6 +4617,9 @@
           if (this.audioToggleBtn) {
             this.audioToggleBtn.click();
           }
+        } else if (e.code === 'KeyF') {
+          e.preventDefault();
+          this.toggleFullscreen();
         }
       });
     }
@@ -4279,7 +4707,8 @@
     }
   
     formatHMS(decimalHours, includeFraction = false) {
-      const totalSec = decimalHours * 3600;
+      const safeHours = Number.isFinite(Number(decimalHours)) ? Number(decimalHours) : 0;
+      const totalSec = safeHours * 3600;
       const h = Math.floor(totalSec / 3600) % 24;
       const m = Math.floor((totalSec % 3600) / 60);
       const s = Math.floor(totalSec % 60);
@@ -4346,7 +4775,55 @@
         this.siderealReadout.innerHTML = `${escapeHTML(this.formatHMS(siderealHours, false))} <small>LMST</small>`;
       }
   
-      // 6. Mechanical escapement audio pulse on second boundary
+      // 7. Update Real-Time Astronomical Ephemeris HUD Strip
+      if (this.hudJulianDate) {
+        const jd = getJulianDate(date);
+        this.hudJulianDate.textContent = jd.toFixed(4);
+      }
+      if (this.hudGmst) {
+        const gmstHours = getGMST(date);
+        this.hudGmst.textContent = this.formatHMS(gmstHours, false);
+      }
+      const solarPos = getSolarPosition(date);
+      if (this.hudSolarDecl) {
+        const sign = solarPos.declinationDeg >= 0 ? '+' : '';
+        this.hudSolarDecl.textContent = `${sign}${solarPos.declinationDeg.toFixed(2)}°`;
+      }
+      if (this.hudEot) {
+        const eot = solarPos.equationOfTimeMinutes;
+        const sign = eot >= 0 ? '+' : '−';
+        const absM = Math.abs(eot);
+        let m = Math.floor(absM);
+        let s = Math.round((absM - m) * 60);
+        if (s >= 60) {
+          m += 1;
+          s -= 60;
+        }
+        this.hudEot.textContent = `${sign}${m}m ${String(s).padStart(2, '0')}s`;
+      }
+      if (this.hudSolarNoon) {
+        const tel = getCelestialTelemetry(date, observer.lat, observer.lon);
+        if (tel && tel.solarNoonUTC) {
+          const h = String(tel.solarNoonUTC.getUTCHours()).padStart(2, '0');
+          const m = String(tel.solarNoonUTC.getUTCMinutes()).padStart(2, '0');
+          const s = String(tel.solarNoonUTC.getUTCSeconds()).padStart(2, '0');
+          this.hudSolarNoon.textContent = `${h}:${m}:${s} UTC`;
+        }
+      }
+      if (this.hudSeason) {
+        // Calendar-based season using UTC month/day (leap-safe, no doy drift)
+        const mo = date.getUTCMonth();
+        const dy = date.getUTCDate();
+        const md = mo * 100 + dy;
+        let season = 'HIBERNAL (WINTER)';
+        if (md >= 320 && md < 621) season = 'VERNAL (SPRING)';
+        else if (md >= 621 && md < 922) season = 'ESTIVAL (SUMMER)';
+        else if (md >= 922 && md < 1221) season = 'AUTUMNAL (FALL)';
+        else season = 'HIBERNAL (WINTER)';
+        this.hudSeason.textContent = season;
+      }
+  
+      // 8. Mechanical escapement audio pulse on second boundary
       const curSec = date.getUTCSeconds();
       if (curSec !== this.lastTickSecond) {
         this.lastTickSecond = curSec;
@@ -4355,9 +4832,16 @@
     }
   }
   
-  // Auto-boot observatory on DOM ready
+  // Auto-boot observatory on DOM ready (refuses to run framed: the buster above
+  // already hid the document and attempted a bust; not booting avoids any
+  // framed rendering, audio, or animation work entirely).
   if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', () => {
+      try {
+        if (window.top !== window.self) return;
+      } catch {
+        return;
+      }
       window.__MERIDIAN_APP__ = new MeridianObservatoryApp();
     });
   }

@@ -39,6 +39,78 @@
   --bevel-well: inset 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 0 12px rgba(0, 0, 0, 0.6);
 }
 
+/* ==========================================================================
+   Horological Case Finish Themes (Live Material Switcher)
+   ========================================================================== */
+[data-theme="rosegold"] {
+  --bg-space: #0c080a;
+  --bg-obsidian: #120c0e;
+  --bg-titanium: #191216;
+  --bg-titanium-elevated: #241a20;
+  --bg-dial-well: #140d11;
+
+  --gold-meridian: #e09f67;
+  --gold-bright: #f7c99e;
+  --gold-dark: #9e6435;
+  --gold-glow: rgba(224, 159, 103, 0.4);
+
+  --platinum: #f7ede2;
+  --platinum-muted: #b59b8a;
+  --platinum-hairline: rgba(247, 237, 226, 0.14);
+  --platinum-glow: rgba(247, 237, 226, 0.25);
+
+  --sidereal-azure: #e67e56;
+  --solar-flame: #f25c54;
+  --twilight-violet: #9b59b6;
+  --status-green: #48cfad;
+}
+
+[data-theme="platinum"] {
+  --bg-space: #070a10;
+  --bg-obsidian: #0a0e17;
+  --bg-titanium: #101622;
+  --bg-titanium-elevated: #182233;
+  --bg-dial-well: #0c131f;
+
+  --gold-meridian: #9bb7d4;
+  --gold-bright: #d2e4f7;
+  --gold-dark: #587494;
+  --gold-glow: rgba(155, 183, 212, 0.35);
+
+  --platinum: #f0f4f8;
+  --platinum-muted: #8ca2ba;
+  --platinum-hairline: rgba(240, 244, 248, 0.14);
+  --platinum-glow: rgba(240, 244, 248, 0.28);
+
+  --sidereal-azure: #2b7fff;
+  --solar-flame: #4090ff;
+  --twilight-violet: #6c5ce7;
+  --status-green: #2ecc71;
+}
+
+[data-theme="monolith"] {
+  --bg-space: #020304;
+  --bg-obsidian: #050608;
+  --bg-titanium: #0a0d12;
+  --bg-titanium-elevated: #111620;
+  --bg-dial-well: #06080b;
+
+  --gold-meridian: #39ff88;
+  --gold-bright: #6effa7;
+  --gold-dark: #1ea354;
+  --gold-glow: rgba(57, 255, 136, 0.4);
+
+  --platinum: #dffced;
+  --platinum-muted: #7aa38f;
+  --platinum-hairline: rgba(57, 255, 136, 0.16);
+  --platinum-glow: rgba(57, 255, 136, 0.3);
+
+  --sidereal-azure: #00f0ff;
+  --solar-flame: #ffb300;
+  --twilight-violet: #8e44ad;
+  --status-green: #39ff88;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -60,6 +132,7 @@ body {
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 220ms ease, color 220ms ease;
 }
 
 /* Numeric tabular feature setting everywhere to eliminate jitter */
@@ -163,6 +236,125 @@ body {
 .audio-toggle-btn.active .sound-pip {
   background: var(--gold-bright);
   box-shadow: 0 0 6px var(--gold-meridian);
+}
+
+.theme-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.theme-selector-wrap label {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.1em;
+}
+
+.fullscreen-toggle-btn {
+  background: transparent;
+  border: var(--border-hairline);
+  color: var(--platinum);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fullscreen-toggle-btn:hover {
+  border-color: var(--gold-meridian);
+  color: var(--gold-bright);
+}
+
+.fullscreen-toggle-btn.active {
+  border-color: var(--gold-meridian);
+  background: rgba(200, 170, 110, 0.15);
+  color: var(--gold-bright);
+  box-shadow: 0 0 10px var(--gold-glow);
+}
+
+.fullscreen-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* ==========================================================================
+   Real-Time Astronomical Telemetry HUD Strip
+   ========================================================================== */
+.astronomical-hud-strip {
+  background: rgba(11, 14, 20, 0.85);
+  border-bottom: var(--border-hairline);
+  backdrop-filter: blur(12px);
+  padding: 0.35rem 2rem;
+  position: relative;
+  z-index: 95;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.hud-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.hud-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.hud-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-green);
+  box-shadow: 0 0 6px var(--status-green);
+  animation: hudPulse 2s infinite ease-in-out;
+}
+
+@keyframes hudPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hud-val {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--platinum);
+}
+
+.hud-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--platinum-hairline);
+}
+
+.badge-harmonic {
+  background: rgba(200, 170, 110, 0.12);
+  border: 1px solid rgba(200, 170, 110, 0.3);
+  color: var(--gold-bright);
+  padding: 0.1rem 0.45rem;
+  border-radius: 2px;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
 }
 
 /* ==========================================================================
@@ -857,6 +1049,80 @@ body {
   color: var(--gold-bright);
   font-weight: 600;
   min-width: 84px;
+}
+
+/* ==========================================================================
+   Tactile Celestial Epoch Horizon Bar
+   ========================================================================== */
+.epoch-horizon-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 0.85rem;
+  background: rgba(8, 10, 15, 0.7);
+  border: var(--border-hairline);
+  border-radius: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.epoch-horizon-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.epoch-horizon-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--platinum-muted);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.epoch-pills-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+
+.epoch-pill {
+  background: var(--bg-obsidian);
+  border: var(--border-hairline);
+  color: var(--platinum-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.epoch-pill:hover {
+  background: var(--bg-titanium-elevated);
+  border-color: var(--platinum-muted);
+  color: var(--platinum);
+  transform: translateY(-1px);
+}
+
+.epoch-pill:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.epoch-pill.active {
+  border-color: var(--gold-meridian);
+  background: rgba(200, 170, 110, 0.14);
+  color: var(--gold-bright);
+  box-shadow: inset 0 0 8px rgba(200, 170, 110, 0.2), 0 0 6px var(--gold-glow);
+}
+
+.epoch-pill-icon {
+  font-size: 0.75rem;
+  line-height: 1;
 }
 
 /* Range slider styling */

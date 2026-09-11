@@ -54,15 +54,19 @@ jobs:
           node-version: 20
 
       - name: Build Standalone Bundle
-        run: node scripts/build.js
+        run: |
+          node scripts/build.js
+          grep -q 'integrity="sha384-' index.html || (echo 'SRI integrity missing from index.html' && exit 1)
 
       - name: Assemble GitHub Pages Distribution
         run: |
+          rm -f dist/*.tmp .index.*.tmp
           mkdir -p _site
           cp index.html _site/
           cp -r dist _site/
           cp -r src _site/
           if [ -d "assets" ]; then cp -r assets _site/; fi
+          rm -f _site/dist/*.tmp
           touch _site/.nojekyll
 
       - name: Setup GitHub Pages

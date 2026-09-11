@@ -74,7 +74,8 @@ export function getGMST(date) {
  */
 export function getLMST(date, longitudeDeg) {
   const gmst = getGMST(date);
-  const offsetHours = longitudeDeg / 15.0;
+  const lonNum = Number(longitudeDeg);
+  const offsetHours = Number.isFinite(lonNum) ? lonNum / 15.0 : 0;
   return normalizeHours(gmst + offsetHours);
 }
 
@@ -166,17 +167,21 @@ export function getSolarPosition(date) {
 
 /**
  * Calculates Local Solar Time (Mean and Apparent) in hours [0, 24).
+ * Invalid dates fall back to 12:00 UTC rather than propagating NaN.
  */
 export function getLocalSolarTime(date, longitudeDeg) {
-  const d = date instanceof Date ? date : new Date(date);
-  const utcHours =
+  const d = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date(Date.UTC(2000, 0, 1, 12, 0, 0));
+  let utcHours =
     d.getUTCHours() +
     d.getUTCMinutes() / 60.0 +
     d.getUTCSeconds() / 3600.0 +
     d.getUTCMilliseconds() / 3600000.0;
+  if (!Number.isFinite(utcHours)) utcHours = 12.0;
 
   const { equationOfTimeMinutes } = getSolarPosition(d);
-  const meanHours = normalizeHours(utcHours + longitudeDeg / 15.0);
+  const lonNum = Number(longitudeDeg);
+  const lonOffset = Number.isFinite(lonNum) ? lonNum / 15.0 : 0;
+  const meanHours = normalizeHours(utcHours + lonOffset);
   const apparentHours = normalizeHours(meanHours + equationOfTimeMinutes / 60.0);
 
   return {
@@ -269,8 +274,8 @@ export function getCelestialTelemetry(date, latitudeDeg, longitudeDeg) {
     sunriseUTC: solarTimes.rise,
     sunsetUTC: solarTimes.set,
     dayLengthHours: dayLengthMs / 3600000.0,
-    solarElevationAtNoonDeg: 90 - Math.abs(latitudeDeg - declinationDeg),
-    goldenHourEndMorningUTC: goldenHourTimes.set ? goldenHourTimes.rise : null,
+    solarElevationAtNoonDeg: 90 - Math.abs(latDeg - declinationDeg),
+    goldenHourEndMorningUTC: goldenHourTimes.rise,
     goldenHourStartEveningUTC: goldenHourTimes.set,
     civilDawnUTC: civilTimes.rise,
     civilDuskUTC: civilTimes.set,
@@ -375,20 +380,26 @@ export function getLunarComplication(date) {
  * Uses robust spherical small/great circle geometry avoiding any division-by-zero singularities.
  */
 export function getTerminatorPoints(date, numPoints = 360, altitudeDeg = 0) {
+  const count = (() => {
+    const n = Math.floor(Number(numPoints));
+    if (!Number.isFinite(n)) return 360;
+    return Math.max(3, Math.min(720, n));
+  })();
+  const alt = Number.isFinite(Number(altitudeDeg)) ? Number(altitudeDeg) : 0;
   const { subsolarPoint } = getSolarPosition(date);
   const phiSRad = subsolarPoint.latitudeDeg * DEG2RAD;
   const lambdaSDeg = subsolarPoint.longitudeDeg;
 
   // Angular radius of circle from subsolar point on sphere: psi = 90° - altitudeDeg
-  const psiRad = (90.0 - altitudeDeg) * DEG2RAD;
+  const psiRad = (90.0 - alt) * DEG2RAD;
   const sinPsi = Math.sin(psiRad);
   const cosPsi = Math.cos(psiRad);
   const sinPhiS = Math.sin(phiSRad);
   const cosPhiS = Math.cos(phiSRad);
 
   const points = [];
-  for (let i = 0; i < numPoints; i++) {
-    const alpha = (i / numPoints) * 2.0 * Math.PI;
+  for (let i = 0; i < count; i++) {
+    const alpha = (i / count) * 2.0 * Math.PI;
     // Spherical trigonometry small/great circle formula
     const sinPhi = sinPhiS * cosPsi + cosPhiS * sinPsi * Math.cos(alpha);
     const clampedSinPhi = Math.max(-1.0, Math.min(1.0, sinPhi));

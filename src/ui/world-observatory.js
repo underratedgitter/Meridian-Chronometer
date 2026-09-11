@@ -56,7 +56,7 @@ export class WorldObservatory {
     this.dragStartPos = null;
     this.dragStartGlobe = null;
     this.totalDragDist = 0;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.isLowPowerMode = false;
 
     this.setupInteractivity();
@@ -71,7 +71,8 @@ export class WorldObservatory {
     const rect = this.canvas.getBoundingClientRect();
     this.width = rect.width || 600;
     this.height = rect.height || 300;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    // Cap DPR at 2 to bound canvas memory
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
@@ -79,6 +80,8 @@ export class WorldObservatory {
     // Invalidate cached shadow map so it recreates if needed
     this.shadowCanvas = null;
     this.shadowImageData = null;
+    this._twilightKey = null;
+    this._orthoShadowKey = null;
   }
 
   setProjectionMode(mode) {
@@ -91,9 +94,12 @@ export class WorldObservatory {
   }
 
   setObserver(lat, lon, name = 'Custom Observer') {
-    this.observer.lat = Math.max(-90, Math.min(90, lat));
-    this.observer.lon = Math.max(-180, Math.min(180, lon));
-    this.observer.name = name;
+    this.observer.lat = Math.max(-90, Math.min(90, Number(lat)));
+    this.observer.lon = Math.max(-180, Math.min(180, Number(lon)));
+    // Truncate display name to prevent canvas overflow / label spoofing
+    this.observer.name = String(name ?? 'Custom Observer').slice(0, 48);
+    if (Number.isNaN(this.observer.lat)) this.observer.lat = 0;
+    if (Number.isNaN(this.observer.lon)) this.observer.lon = 0;
     if (this.onObserverChange) {
       this.onObserverChange(this.observer);
     }
@@ -501,6 +507,9 @@ export class WorldObservatory {
       this.orthoShadowData = this.orthoShadowCtx.createImageData(this.orthoShadowW, this.orthoShadowH);
     }
 
+    const orthoKey = `${Math.round(centerLon * 4)}:${Math.round(centerLat * 4)}:${Math.round(sunPhiRad * 57.2958 * 4)}:${Math.round(sunLamRad * 57.2958 * 4)}`;
+    if (this._orthoShadowKey !== orthoKey) {
+      this._orthoShadowKey = orthoKey;
     const sw = this.orthoShadowW;
     const sh = this.orthoShadowH;
     const sRadius = sw / 2;
@@ -567,6 +576,7 @@ export class WorldObservatory {
     }
 
     this.orthoShadowCtx.putImageData(this.orthoShadowData, 0, 0);
+    }
 
     ctx.save();
     ctx.imageSmoothingEnabled = true;
@@ -687,6 +697,10 @@ export class WorldObservatory {
     }
 
     if (this.shadowImageData) {
+      // Memoize 64k-pixel shadow: recompute only when subsolar moves >0.1°
+      const shadowKey = `${Math.round(subsolarPoint.latitudeDeg * 10)}:${Math.round(subsolarPoint.longitudeDeg * 10)}`;
+      if (this._twilightKey !== shadowKey) {
+        this._twilightKey = shadowKey;
       const buf = this.shadowImageData.data;
       const sw = this.shadowW;
       const sh = this.shadowH;
@@ -736,6 +750,7 @@ export class WorldObservatory {
       }
 
       this.shadowCtx.putImageData(this.shadowImageData, 0, 0);
+      }
 
       ctx.save();
       ctx.imageSmoothingEnabled = true;

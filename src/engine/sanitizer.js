@@ -30,16 +30,41 @@ export function escapeHTML(val) {
  * @returns {Record<string, any>}
  */
 export function safeMerge(defaults = {}, options = {}) {
-  const clean = Object.create(null);
-  if (defaults && typeof defaults === 'object') {
-    Object.assign(clean, defaults);
-  }
-  if (options && typeof options === 'object') {
-    for (const key of Object.keys(options)) {
-      if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
-        clean[key] = options[key];
-      }
+  const BLOCKED = new Set(['__proto__', 'constructor', 'prototype']);
+
+  function sanitizeValue(value, seen = new WeakMap(), depth = 0) {
+    if (depth > 20) return value;
+    if (Array.isArray(value)) {
+      if (seen.has(value)) return seen.get(value);
+      const arr = [];
+      seen.set(value, arr);
+      for (const item of value) arr.push(sanitizeValue(item, seen, depth + 1));
+      return arr;
     }
+    if (value && typeof value === 'object') {
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null) return value;
+      if (seen.has(value)) return seen.get(value);
+      const out = {};
+      seen.set(value, out);
+      for (const key of Object.keys(value)) {
+        if (!BLOCKED.has(key)) {
+          out[key] = sanitizeValue(value[key], seen, depth + 1);
+        }
+      }
+      for (const sym of Object.getOwnPropertySymbols(value)) {
+        if (Object.prototype.propertyIsEnumerable.call(value, sym)) {
+          out[sym] = sanitizeValue(value[sym], seen, depth + 1);
+        }
+      }
+      return out;
+    }
+    return value;
   }
-  return { ...clean };
+
+  const a = defaults && typeof defaults === 'object' ? sanitizeValue(defaults) : {};
+  const b = options && typeof options === 'object' ? sanitizeValue(options) : {};
+  const cleanA = a && typeof a === 'object' && !Array.isArray(a) ? a : {};
+  const cleanB = b && typeof b === 'object' && !Array.isArray(b) ? b : {};
+  return { ...cleanA, ...cleanB };
 }

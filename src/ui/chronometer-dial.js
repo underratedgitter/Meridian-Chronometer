@@ -6,6 +6,61 @@
 
 import { safeMerge } from '../engine/sanitizer.js';
 
+export const DIAL_THEMES = {
+  titanium: {
+    primaryGold: '#c8aa6e',
+    goldLight: '#e8ca8e',
+    goldDark: '#8f7645',
+    platinum: '#d8e2ec',
+    platinumMuted: 'rgba(216, 226, 236, 0.35)',
+    siderealBlue: '#4fa4e8',
+    obsidian: '#090a0f',
+    dialPlate: '#0e1118',
+    lumeColor: '#38ef7d',
+    guillocheColor: 'rgba(216, 226, 236, 0.04)',
+    secondsColor: '#e27d60'
+  },
+  rosegold: {
+    primaryGold: '#e09f67',
+    goldLight: '#f7c99e',
+    goldDark: '#9e6435',
+    platinum: '#f7ede2',
+    platinumMuted: 'rgba(247, 237, 226, 0.35)',
+    siderealBlue: '#e67e56',
+    obsidian: '#120c0e',
+    dialPlate: '#181215',
+    lumeColor: '#48cfad',
+    guillocheColor: 'rgba(224, 159, 103, 0.05)',
+    secondsColor: '#f25c54'
+  },
+  platinum: {
+    primaryGold: '#9bb7d4',
+    goldLight: '#d2e4f7',
+    goldDark: '#587494',
+    platinum: '#ffffff',
+    platinumMuted: 'rgba(240, 244, 248, 0.38)',
+    siderealBlue: '#2b7fff',
+    obsidian: '#0a0e17',
+    dialPlate: '#101622',
+    lumeColor: '#2ecc71',
+    guillocheColor: 'rgba(255, 255, 255, 0.045)',
+    secondsColor: '#4090ff'
+  },
+  monolith: {
+    primaryGold: '#39ff88',
+    goldLight: '#6effa7',
+    goldDark: '#1ea354',
+    platinum: '#dffced',
+    platinumMuted: 'rgba(57, 255, 136, 0.35)',
+    siderealBlue: '#00f0ff',
+    obsidian: '#050608',
+    dialPlate: '#0a0d12',
+    lumeColor: '#39ff88',
+    guillocheColor: 'rgba(57, 255, 136, 0.045)',
+    secondsColor: '#ffb300'
+  }
+};
+
 export class ChronometerDial {
   constructor(canvasElement, options = {}) {
     this.canvas = canvasElement;
@@ -18,16 +73,24 @@ export class ChronometerDial {
       platinumMuted: 'rgba(216, 226, 236, 0.35)',
       siderealBlue: '#4fa4e8',
       obsidian: '#090a0f',
-      dialPlate: '#0e1118'
+      dialPlate: '#0e1118',
+      lumeColor: '#38ef7d',
+      guillocheColor: 'rgba(216, 226, 236, 0.04)',
+      secondsColor: '#e27d60'
     }, options);
 
     this.width = 0;
     this.height = 0;
     this.radius = 0;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.isLowPowerMode = false;
 
     this.resize();
+  }
+
+  setTheme(themeName) {
+    const palette = DIAL_THEMES[themeName] || DIAL_THEMES.titanium;
+    this.options = safeMerge(this.options, palette);
   }
 
   setLowPowerMode(enabled) {
@@ -38,7 +101,8 @@ export class ChronometerDial {
     const rect = this.canvas.getBoundingClientRect();
     this.width = rect.width || 380;
     this.height = rect.height || 380;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    // Cap DPR at 2 to bound canvas memory on high-density / 8K displays
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
@@ -53,6 +117,8 @@ export class ChronometerDial {
    *   times.siderealHours: number [0, 24)
    */
   render(times) {
+    if (!times || !(times.utcDate instanceof Date) || !Number.isFinite(times.utcDate.getTime())) return;
+    if (!Number.isFinite(Number(times.solarApparentHours)) || !Number.isFinite(Number(times.siderealHours))) return;
     const ctx = this.ctx;
     const dpr = this.dpr;
     const w = this.canvas.width;
@@ -101,6 +167,9 @@ export class ChronometerDial {
     // Center Jewel Pinion Cap
     this.drawCenterPinion(ctx, cx, cy, r);
 
+    // Anti-Reflective Curved Sapphire Crystal Reflection
+    this.drawSapphireCrystalGlare(ctx, cx, cy, r);
+
     ctx.restore();
   }
 
@@ -109,14 +178,17 @@ export class ChronometerDial {
 
     // Dial background gradient
     const bgGrad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
-    bgGrad.addColorStop(0, '#131824');
-    bgGrad.addColorStop(0.7, '#0b0e14');
-    bgGrad.addColorStop(1, '#07080c');
+    bgGrad.addColorStop(0, opt.dialPlate || '#131824');
+    bgGrad.addColorStop(0.7, opt.obsidian || '#0b0e14');
+    bgGrad.addColorStop(1, '#05070a');
 
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = bgGrad;
     ctx.fill();
+
+    // Subtle Haute Horlogerie engine-turned guilloché wave pattern
+    this.drawGuillochePattern(ctx, cx, cy, r);
 
     // Outer machined titanium & platinum rings
     ctx.lineWidth = Math.max(1, 2 * this.dpr);
@@ -133,6 +205,67 @@ export class ChronometerDial {
     ctx.arc(cx, cy, r - 7 * this.dpr, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(200, 170, 110, 0.18)';
     ctx.stroke();
+  }
+
+  drawGuillochePattern(ctx, cx, cy, r) {
+    if (this.isLowPowerMode) return;
+    const dpr = this.dpr;
+    const opt = this.options;
+    ctx.save();
+    ctx.strokeStyle = opt.guillocheColor || 'rgba(216, 226, 236, 0.04)';
+    ctx.lineWidth = Math.max(0.5, 0.65 * dpr);
+
+    // Concentric engine-turned guilloché waves
+    const ringCount = 24;
+    for (let i = 4; i < ringCount; i++) {
+      const ringR = (i / ringCount) * (r * 0.88);
+      ctx.beginPath();
+      ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 36 Radial sunburst fluting rays
+    for (let a = 0; a < 36; a++) {
+      const rad = (a / 36) * Math.PI * 2;
+      const x1 = cx + Math.cos(rad) * (r * 0.36);
+      const y1 = cy + Math.sin(rad) * (r * 0.36);
+      const x2 = cx + Math.cos(rad) * (r * 0.92);
+      const y2 = cy + Math.sin(rad) * (r * 0.92);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  drawSapphireCrystalGlare(ctx, cx, cy, r) {
+    if (this.isLowPowerMode) return;
+    const dpr = this.dpr;
+    ctx.save();
+
+    // Double-domed anti-reflective sapphire crystal reflection highlight
+    const glareGrad = ctx.createLinearGradient(cx - r * 0.8, cy - r * 0.8, cx + r * 0.5, cy + r * 0.5);
+    glareGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+    glareGrad.addColorStop(0.32, 'rgba(255, 255, 255, 0.03)');
+    glareGrad.addColorStop(0.38, 'rgba(255, 255, 255, 0.08)');
+    glareGrad.addColorStop(0.40, 'rgba(79, 164, 232, 0.08)'); // anti-reflective blue-violet sheen
+    glareGrad.addColorStop(0.44, 'rgba(255, 255, 255, 0.02)');
+    glareGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 2 * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = glareGrad;
+    ctx.fill();
+
+    // Subtle edge bevel reflection
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 3 * dpr, -Math.PI * 0.75, -Math.PI * 0.2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   drawUtcChapterRing(ctx, cx, cy, r) {
@@ -170,6 +303,20 @@ export class ChronometerDial {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(h).padStart(2, '0'), tx, ty);
+
+        // Super-LumiNova photoluminescent pip
+        const pipR = r - 15.5 * dpr;
+        const px = cx + Math.cos(angle) * pipR;
+        const py = cy + Math.sin(angle) * pipR;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.35 * dpr, 0, Math.PI * 2);
+        ctx.fillStyle = opt.lumeColor || '#38ef7d';
+        if (!this.isLowPowerMode) {
+          ctx.shadowColor = opt.lumeColor || '#38ef7d';
+          ctx.shadowBlur = 3 * dpr;
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
     }
 
@@ -462,8 +609,10 @@ export class ChronometerDial {
   }
 
   drawSecondsHand(ctx, cx, cy, length, seconds) {
+    const opt = this.options;
     const dpr = this.dpr;
     const angle = (seconds / 60.0) * Math.PI * 2 - Math.PI / 2;
+    const secColor = opt.secondsColor || '#e27d60';
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -474,13 +623,13 @@ export class ChronometerDial {
     ctx.moveTo(0, 16 * dpr); // counterweight tail
     ctx.lineTo(0, -length);
     ctx.lineWidth = 0.9 * dpr;
-    ctx.strokeStyle = '#e27d60'; // warm flame-treated terracotta
+    ctx.strokeStyle = secColor;
     ctx.stroke();
 
     // Counterweight circle
     ctx.beginPath();
     ctx.arc(0, 16 * dpr, 2.5 * dpr, 0, Math.PI * 2);
-    ctx.fillStyle = '#e27d60';
+    ctx.fillStyle = secColor;
     ctx.fill();
 
     ctx.restore();

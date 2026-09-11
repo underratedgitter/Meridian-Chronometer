@@ -1,9 +1,14 @@
 import { chromium } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
 
 async function main() {
-  const assetsDir = path.resolve('assets');
+  const assetsDir = path.join(rootDir, 'assets');
   if (!fs.existsSync(assetsDir)) {
     fs.mkdirSync(assetsDir, { recursive: true });
   }
@@ -15,8 +20,10 @@ async function main() {
   });
 
   const page = await context.newPage();
-  await page.goto('http://127.0.0.1:8085');
-  await page.waitForTimeout(2500);
+  const targetUrl = process.env.BASE_URL || 'http://127.0.0.1:8085';
+  await page.goto(targetUrl);
+  await page.waitForSelector('#dialCanvas', { timeout: 10000 });
+  await page.waitForTimeout(500);
 
   console.log('📸 Capturing 1: Full Master Observatory Hero...');
   await page.screenshot({ path: path.join(assetsDir, 'meridian-hero.png') });

@@ -9,7 +9,9 @@ import {
   getGMST,
   getLMST,
   getLocalSolarTime,
-  getSolarPosition
+  getSolarPosition,
+  getJulianDate,
+  getCelestialTelemetry
 } from './engine/astronomy.js';
 import { PRESET_OBSERVATORIES } from './engine/world-geometry.js';
 import { ChronometerDial } from './ui/chronometer-dial.js';
@@ -20,6 +22,18 @@ import { TimeScrubber } from './ui/time-scrubber.js';
 import { EscapementAudio } from './ui/audio-escapement.js';
 import { SkyDomeModal } from './ui/sky-dome.js';
 import { escapeHTML } from './engine/sanitizer.js';
+
+// Frame-busting: header frame-ancestors/X-Frame-Options protect http://,
+// but <meta> cannot enforce them (spec) so file:// relies on this.
+// External bundle (allowed by script-src 'self'), no inline script needed.
+try {
+  if (typeof window !== 'undefined' && window.top !== window.self) {
+    try { document.documentElement.style.display = 'none'; } catch {}
+    window.top.location.replace(window.self.location.href);
+  }
+} catch {
+  try { document.documentElement.style.display = 'none'; } catch {}
+}
 
 class MeridianObservatoryApp {
   constructor() {
@@ -57,6 +71,18 @@ class MeridianObservatoryApp {
     this.observatorySelect = document.getElementById('observatorySelect');
     this.audioToggleBtn = document.getElementById('audioToggleBtn');
 
+    // Horological finish selector & Fullscreen mode
+    this.themeSelect = document.getElementById('themeSelect');
+    this.btnFullscreen = document.getElementById('btnFullscreen');
+
+    // Real-Time Astronomical Telemetry HUD Strip
+    this.hudJulianDate = document.getElementById('hudJulianDate');
+    this.hudGmst = document.getElementById('hudGmst');
+    this.hudSolarDecl = document.getElementById('hudSolarDecl');
+    this.hudEot = document.getElementById('hudEot');
+    this.hudSolarNoon = document.getElementById('hudSolarNoon');
+    this.hudSeason = document.getElementById('hudSeason');
+
     // 3D globe projection toggle & sky dome buttons
     this.btnProj2D = document.getElementById('btnProj2D');
     this.btnProj3D = document.getElementById('btnProj3D');
@@ -84,6 +110,16 @@ class MeridianObservatoryApp {
       this.skyDomeModal = new SkyDomeModal(this.skyDomeModalEl, this.skyDomeCanvas);
     }
 
+    // Restore or initialize horological case finish (allowlisted to prevent CSS/attr injection)
+    let savedTheme = 'titanium';
+    try {
+      const stored = localStorage.getItem('meridian_theme');
+      if (stored === 'titanium' || stored === 'rosegold' || stored === 'platinum' || stored === 'monolith') {
+        savedTheme = stored;
+      }
+    } catch {}
+    this.setTheme(savedTheme);
+
     // Sync observer change from map click to select dropdown & open sky dome
     this.worldObservatory.onObserverChange = (obs) => {
       this.updateObserverDisplay(obs);
@@ -98,6 +134,46 @@ class MeridianObservatoryApp {
         this.skyDomeModal.open(obs, this.timeController.getTime());
       }
     };
+  }
+
+  setTheme(themeName) {
+    const allowed = new Set(['titanium', 'rosegold', 'platinum', 'monolith']);
+    const safeTheme = allowed.has(themeName) ? themeName : 'titanium';
+    this.currentTheme = safeTheme;
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', safeTheme);
+      if (this.themeSelect) {
+        this.themeSelect.value = safeTheme;
+      }
+      try {
+        localStorage.setItem('meridian_theme', safeTheme);
+      } catch {}
+    }
+    if (this.chronometerDial && typeof this.chronometerDial.setTheme === 'function') {
+      this.chronometerDial.setTheme(safeTheme);
+    }
+    if (this.lunarComplication && typeof this.lunarComplication.setTheme === 'function') {
+      this.lunarComplication.setTheme(safeTheme);
+    }
+  }
+
+  toggleFullscreen() {
+    if (typeof document === 'undefined') return;
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      if (this.btnFullscreen) {
+        this.btnFullscreen.classList.add('active');
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      if (this.btnFullscreen) {
+        this.btnFullscreen.classList.remove('active');
+      }
+    }
   }
 
   initAudio() {
@@ -158,10 +234,33 @@ class MeridianObservatoryApp {
       });
     }
 
+    // Horological finish theme selection
+    if (this.themeSelect) {
+      this.themeSelect.addEventListener('change', (e) => {
+        this.setTheme(e.target.value);
+      });
+    }
+
+    // Fullscreen observatory mode toggle
+    if (this.btnFullscreen) {
+      this.btnFullscreen.addEventListener('click', () => {
+        this.toggleFullscreen();
+      });
+    }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('fullscreenchange', () => {
+        if (this.btnFullscreen) {
+          this.btnFullscreen.classList.toggle('active', Boolean(document.fullscreenElement));
+        }
+      });
+    }
+
     // Keyboard shortcuts & hotkey interactions:
     // 'g' or 'm': toggle 2D Flat vs 3D Globe camera projection mode
     // 'd': toggle Local Zenith Sky Dome modal
     // 'a': toggle mechanical escapement audio
+    // 'f': toggle fullscreen mode
     window.addEventListener('keydown', (e) => {
       const tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -188,6 +287,9 @@ class MeridianObservatoryApp {
         if (this.audioToggleBtn) {
           this.audioToggleBtn.click();
         }
+      } else if (e.code === 'KeyF') {
+        e.preventDefault();
+        this.toggleFullscreen();
       }
     });
   }
@@ -275,7 +377,8 @@ class MeridianObservatoryApp {
   }
 
   formatHMS(decimalHours, includeFraction = false) {
-    const totalSec = decimalHours * 3600;
+    const safeHours = Number.isFinite(Number(decimalHours)) ? Number(decimalHours) : 0;
+    const totalSec = safeHours * 3600;
     const h = Math.floor(totalSec / 3600) % 24;
     const m = Math.floor((totalSec % 3600) / 60);
     const s = Math.floor(totalSec % 60);
@@ -342,7 +445,55 @@ class MeridianObservatoryApp {
       this.siderealReadout.innerHTML = `${escapeHTML(this.formatHMS(siderealHours, false))} <small>LMST</small>`;
     }
 
-    // 6. Mechanical escapement audio pulse on second boundary
+    // 7. Update Real-Time Astronomical Ephemeris HUD Strip
+    if (this.hudJulianDate) {
+      const jd = getJulianDate(date);
+      this.hudJulianDate.textContent = jd.toFixed(4);
+    }
+    if (this.hudGmst) {
+      const gmstHours = getGMST(date);
+      this.hudGmst.textContent = this.formatHMS(gmstHours, false);
+    }
+    const solarPos = getSolarPosition(date);
+    if (this.hudSolarDecl) {
+      const sign = solarPos.declinationDeg >= 0 ? '+' : '';
+      this.hudSolarDecl.textContent = `${sign}${solarPos.declinationDeg.toFixed(2)}°`;
+    }
+    if (this.hudEot) {
+      const eot = solarPos.equationOfTimeMinutes;
+      const sign = eot >= 0 ? '+' : '−';
+      const absM = Math.abs(eot);
+      let m = Math.floor(absM);
+      let s = Math.round((absM - m) * 60);
+      if (s >= 60) {
+        m += 1;
+        s -= 60;
+      }
+      this.hudEot.textContent = `${sign}${m}m ${String(s).padStart(2, '0')}s`;
+    }
+    if (this.hudSolarNoon) {
+      const tel = getCelestialTelemetry(date, observer.lat, observer.lon);
+      if (tel && tel.solarNoonUTC) {
+        const h = String(tel.solarNoonUTC.getUTCHours()).padStart(2, '0');
+        const m = String(tel.solarNoonUTC.getUTCMinutes()).padStart(2, '0');
+        const s = String(tel.solarNoonUTC.getUTCSeconds()).padStart(2, '0');
+        this.hudSolarNoon.textContent = `${h}:${m}:${s} UTC`;
+      }
+    }
+    if (this.hudSeason) {
+      // Calendar-based season using UTC month/day (leap-safe, no doy drift)
+      const mo = date.getUTCMonth();
+      const dy = date.getUTCDate();
+      const md = mo * 100 + dy;
+      let season = 'HIBERNAL (WINTER)';
+      if (md >= 320 && md < 621) season = 'VERNAL (SPRING)';
+      else if (md >= 621 && md < 922) season = 'ESTIVAL (SUMMER)';
+      else if (md >= 922 && md < 1221) season = 'AUTUMNAL (FALL)';
+      else season = 'HIBERNAL (WINTER)';
+      this.hudSeason.textContent = season;
+    }
+
+    // 8. Mechanical escapement audio pulse on second boundary
     const curSec = date.getUTCSeconds();
     if (curSec !== this.lastTickSecond) {
       this.lastTickSecond = curSec;
@@ -351,9 +502,16 @@ class MeridianObservatoryApp {
   }
 }
 
-// Auto-boot observatory on DOM ready
+// Auto-boot observatory on DOM ready (refuses to run framed: the buster above
+// already hid the document and attempted a bust; not booting avoids any
+// framed rendering, audio, or animation work entirely).
 if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
+    try {
+      if (window.top !== window.self) return;
+    } catch {
+      return;
+    }
     window.__MERIDIAN_APP__ = new MeridianObservatoryApp();
   });
 }

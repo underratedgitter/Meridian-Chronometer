@@ -4,12 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Meridian Chronometer — High-precision luxury astronomical horology meets aerospace solar observatory." />
+  <!-- Fallback CSP for file:// access where server headers are absent. Mirrors server.js SECURITY_HEADERS. -->
+  <!-- NOTE (GitHub Pages): static hosting sends no custom headers, so framing is enforced -->
+  <!-- by the bundle frame-buster + boot-abort (see src/index.js), not by meta frame-ancestors. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self';" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>Meridian Chronometer // Astronomical Horology & Solar Observatory</title>
 
   <!-- Typography: Luxury Swiss Serifs & Aerospace Monospace Telemetry -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" referrerpolicy="no-referrer" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin referrerpolicy="no-referrer" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" referrerpolicy="no-referrer" />
 
   <!-- Chronometer Stylesheet -->
   <link rel="stylesheet" href="src/styles/chronometer.css" />
@@ -25,6 +30,16 @@
       </div>
 
       <div class="observatory-actions">
+        <div class="theme-selector-wrap">
+          <label for="themeSelect">FINISH:</label>
+          <select id="themeSelect" class="meridian-select" aria-label="Select Horological Case Finish">
+            <option value="titanium">TITANIUM DEEP SPACE</option>
+            <option value="rosegold">ROSE GOLD & OBSIDIAN</option>
+            <option value="platinum">PLATINUM & BLUED STEEL</option>
+            <option value="monolith">MIDNIGHT MONOLITH DLC</option>
+          </select>
+        </div>
+
         <div class="observatory-selector-wrap">
           <label for="observatorySelect">OBSERVATORY:</label>
           <select id="observatorySelect" class="meridian-select" aria-label="Select Astronomical Observatory">
@@ -35,9 +50,54 @@
         <button id="audioToggleBtn" class="audio-toggle-btn" aria-pressed="false" title="Toggle Swiss Mechanical Escapement Acoustic Feedback">
           <span class="sound-pip"></span> ESCAPEMENT AUDIO
         </button>
+
+        <button id="btnFullscreen" class="fullscreen-toggle-btn" type="button" title="Toggle Fullscreen Observatory Mode (F)">
+          <span class="fullscreen-icon">⛶</span> FULLSCREEN
+        </button>
       </div>
     </div>
   </header>
+
+  <!-- Real-Time Astronomical Telemetry HUD Strip -->
+  <aside class="astronomical-hud-strip" aria-label="Observatory Real-Time Ephemeris Ribbon">
+    <div class="hud-inner">
+      <div class="hud-item">
+        <span class="hud-dot"></span>
+        <span class="hud-label">JULIAN DATE</span>
+        <span class="hud-val tnum" id="hudJulianDate">--</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">GREENWICH GMST</span>
+        <span class="hud-val tnum" id="hudGmst">--</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">SOLAR DECLINATION</span>
+        <span class="hud-val tnum" id="hudSolarDecl">--</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">EQUATION OF TIME</span>
+        <span class="hud-val tnum" id="hudEot">--</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">ECLIPTIC OBLIQUITY</span>
+        <span class="hud-val tnum">23° 26′ 14″</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">SOLAR TRANSIT</span>
+        <span class="hud-val tnum" id="hudSolarNoon">--</span>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-item">
+        <span class="hud-label">CELESTIAL HARMONIC</span>
+        <span class="hud-val badge-harmonic" id="hudSeason">EQUINOX CYCLE</span>
+      </div>
+    </div>
+  </aside>
 
   <!-- Master Observatory Instrument Console -->
   <main class="observatory-main">
@@ -193,6 +253,6 @@
   </footer>
 
   <!-- Application Entry Point: Universal support for both http:// and direct file:// local access -->
-  <script src="dist/bundle.js"></script>
+  <script src="dist/bundle.js" integrity="sha384-LhZhYEZsEUYFAFQ5C6c+usw/r2kV/9j9rYDphaw0dWEne95tLOfqRT4vL1KibIgc"></script>
 </body>
 </html>

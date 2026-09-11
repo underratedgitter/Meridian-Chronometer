@@ -17,7 +17,7 @@ export class TelemetryDisplay {
     this.lastObserverName = '';
     this.width = 0;
     this.height = 0;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.isLowPowerMode = false;
     this.resize();
   }
@@ -31,7 +31,7 @@ export class TelemetryDisplay {
     const rect = this.analemmaCanvas.getBoundingClientRect();
     this.width = rect.width || 280;
     this.height = rect.height || 180;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.analemmaCanvas.width = Math.round(this.width * this.dpr);
     this.analemmaCanvas.height = Math.round(this.height * this.dpr);
   }
@@ -59,10 +59,15 @@ export class TelemetryDisplay {
   }
 
   formatEoT(minutes) {
+    if (!Number.isFinite(Number(minutes))) return '+0m 00s';
     const sign = minutes >= 0 ? '+' : '−';
     const absMin = Math.abs(minutes);
-    const m = Math.floor(absMin);
-    const s = Math.round((absMin - m) * 60);
+    let m = Math.floor(absMin);
+    let s = Math.round((absMin - m) * 60);
+    if (s >= 60) {
+      m += 1;
+      s -= 60;
+    }
     return `${sign}${m}m ${String(s).padStart(2, '0')}s`;
   }
 

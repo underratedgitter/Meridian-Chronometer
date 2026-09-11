@@ -34,7 +34,7 @@ export class SkyDomeModal {
     this.hoveredObject = null;
     this.currentDate = new Date();
     this.currentObserver = { lat: 51.4769, lon: 0.0005, name: 'Royal Observatory Greenwich' };
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     this.initEvents();
     this.resize();
@@ -44,7 +44,7 @@ export class SkyDomeModal {
     if (!this.canvas) return;
     const rect = this.canvas.getBoundingClientRect();
     const size = Math.min(rect.width || 460, rect.height || 460);
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.canvas.width = Math.round(size * this.dpr);
     this.canvas.height = Math.round(size * this.dpr);
     this.radius = (size / 2) * 0.88;
@@ -87,8 +87,16 @@ export class SkyDomeModal {
   }
 
   open(observer, date) {
-    this.currentObserver = observer;
-    this.currentDate = date;
+    if (observer && typeof observer === 'object') {
+      const lat = Math.max(-90, Math.min(90, Number(observer.lat)));
+      const lon = Math.max(-180, Math.min(180, Number(observer.lon)));
+      this.currentObserver = {
+        lat: Number.isNaN(lat) ? 0 : lat,
+        lon: Number.isNaN(lon) ? 0 : lon,
+        name: String(observer.name ?? 'Unknown').slice(0, 48)
+      };
+    }
+    this.currentDate = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date();
     this.isOpen = true;
     this.modal.classList.add('active');
     this.modal.setAttribute('aria-hidden', 'false');
@@ -142,8 +150,16 @@ export class SkyDomeModal {
   }
 
   render(date = null, observer = null) {
-    if (date) this.currentDate = date;
-    if (observer) this.currentObserver = observer;
+    if (date instanceof Date && Number.isFinite(date.getTime())) this.currentDate = date;
+    if (observer && typeof observer === 'object') {
+      const lat = Math.max(-90, Math.min(90, Number(observer.lat)));
+      const lon = Math.max(-180, Math.min(180, Number(observer.lon)));
+      this.currentObserver = {
+        lat: Number.isNaN(lat) ? this.currentObserver.lat : lat,
+        lon: Number.isNaN(lon) ? this.currentObserver.lon : lon,
+        name: String(observer.name ?? this.currentObserver.name ?? 'Unknown').slice(0, 48)
+      };
+    }
     if (!this.isOpen || !this.ctx) return;
 
     const ctx = this.ctx;
@@ -343,7 +359,12 @@ export class SkyDomeModal {
 
     this.cachedCelestialObjects = objects;
 
-    // Draw visible celestial bodies
+    // Draw visible celestial bodies, clipped to the horizon circle so
+    // below-horizon twilight sun (alt in [-18,0)) never paints outside the dome
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
     for (const obj of objects) {
       if (!obj.isVisible) continue;
 
@@ -396,6 +417,7 @@ export class SkyDomeModal {
       }
       ctx.restore();
     }
+    ctx.restore();
   }
 
   drawHorizonFrame(ctx, cx, cy, r, dpr) {

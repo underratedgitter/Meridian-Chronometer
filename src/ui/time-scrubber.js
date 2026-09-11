@@ -56,6 +56,34 @@ export class TimeScrubber {
           </button>
         </div>
 
+        <!-- Tactile Celestial Epoch Presets Horizon -->
+        <div class="epoch-horizon-bar" role="toolbar" aria-label="Quick Celestial Epoch Navigation">
+          <span class="epoch-horizon-label">CELESTIAL JUMPS:</span>
+          <div class="epoch-pills-row">
+            <button class="epoch-pill ${this.controller.isRealtime ? 'active' : ''}" data-epoch="realtime" type="button" title="Synchronize with Live System UTC">
+              <span class="epoch-pill-icon">⏱️</span> REALTIME UTC
+            </button>
+            <button class="epoch-pill" data-epoch="2024-06-20T20:51:00Z" type="button" title="Summer Solstice 2024">
+              <span class="epoch-pill-icon">☀️</span> SUMMER SOLSTICE
+            </button>
+            <button class="epoch-pill" data-epoch="2024-12-21T09:21:00Z" type="button" title="Winter Solstice 2024">
+              <span class="epoch-pill-icon">❄️</span> WINTER SOLSTICE
+            </button>
+            <button class="epoch-pill" data-epoch="2024-03-20T03:06:00Z" type="button" title="Vernal Equinox 2024">
+              <span class="epoch-pill-icon">🌸</span> VERNAL EQUINOX
+            </button>
+            <button class="epoch-pill" data-epoch="2024-09-22T12:44:00Z" type="button" title="Autumnal Equinox 2024">
+              <span class="epoch-pill-icon">🍂</span> AUTUMNAL EQUINOX
+            </button>
+            <button class="epoch-pill" data-epoch="2024-04-08T18:18:00Z" type="button" title="Great North American Total Solar Eclipse 2024">
+              <span class="epoch-pill-icon">🌑</span> TOTAL SOLAR ECLIPSE
+            </button>
+            <button class="epoch-pill" data-epoch="1969-07-20T20:17:40Z" type="button" title="Apollo 11 Tranquility Base Lunar Landing">
+              <span class="epoch-pill-icon">🚀</span> APOLLO 11 LANDING
+            </button>
+          </div>
+        </div>
+
         <!-- 24-Hour Diurnal Timeline Slider -->
         <div class="scrubber-timeline-container">
           <div class="timeline-labels-row">
@@ -107,6 +135,26 @@ export class TimeScrubber {
       this.updateUI();
     });
 
+    // Tactile Epoch Horizon Pills
+    const pills = c.querySelectorAll('.epoch-pill');
+    pills.forEach((pill) => {
+      pill.addEventListener('click', () => {
+        const epochVal = pill.getAttribute('data-epoch');
+        if (epochVal === 'realtime') {
+          this.controller.syncRealtime();
+        } else {
+          this.controller.setTime(new Date(epochVal));
+        }
+        pills.forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const selectPreset = c.querySelector('#epochPreset');
+        if (selectPreset) {
+          selectPreset.value = epochVal;
+        }
+        this.updateUI();
+      });
+    });
+
     // Preset selector
     const selectPreset = c.querySelector('#epochPreset');
     selectPreset.addEventListener('change', (e) => {
@@ -119,11 +167,14 @@ export class TimeScrubber {
       this.updateUI();
     });
 
-    // Direct Date Input
+    // Direct Date Input (datetime-local has no zone; interpret as UTC for consistency
+    // with updateUI which formats via getUTC*. Appending 'Z' avoids TZ-offset shift.)
     const dateInput = c.querySelector('#directDateTime');
     dateInput.addEventListener('change', (e) => {
       if (e.target.value) {
-        this.controller.setTime(new Date(e.target.value));
+        const val = e.target.value;
+        const asUtc = /[zZ]|[+-]\d{2}:?\d{2}$/.test(val) ? new Date(val) : new Date(`${val}Z`);
+        this.controller.setTime(asUtc);
         this.updateUI();
       }
     });
@@ -232,11 +283,19 @@ export class TimeScrubber {
       speedText.textContent = `${this.controller.speedMultiplier}x ${this.controller.direction < 0 ? 'REV' : 'FWD'}`;
     }
 
-    // Latch button
+    // Latch button & epoch pills
     const btnSync = c.querySelector('#btnSyncRealtime');
     if (btnSync) {
       btnSync.className = `meridian-btn btn-latch ${isRt ? 'active' : ''}`;
     }
+
+    const pills = c.querySelectorAll('.epoch-pill');
+    pills.forEach((pill) => {
+      const epochVal = pill.getAttribute('data-epoch');
+      if (isRt) {
+        pill.classList.toggle('active', epochVal === 'realtime');
+      }
+    });
 
     // Play/Pause button
     const btnPlayPause = c.querySelector('#btnPlayPause');

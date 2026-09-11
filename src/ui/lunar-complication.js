@@ -23,15 +23,26 @@ export class LunarComplication {
       craterColor: 'rgba(90, 105, 125, 0.28)'
     }, options);
 
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     this.resize();
+  }
+
+  setTheme(themeName) {
+    const palettes = {
+      titanium: { primaryGold: '#c8aa6e', goldLight: '#e8ca8e', platinum: '#d8e2ec' },
+      rosegold: { primaryGold: '#e09f67', goldLight: '#f7c99e', platinum: '#f7ede2' },
+      platinum: { primaryGold: '#9bb7d4', goldLight: '#d2e4f7', platinum: '#ffffff' },
+      monolith: { primaryGold: '#39ff88', goldLight: '#6effa7', platinum: '#dffced' }
+    };
+    const p = palettes[themeName] || palettes.titanium;
+    this.options = safeMerge(this.options, p);
   }
 
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     this.width = rect.width || 180;
     this.height = rect.height || 180;
-    this.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
@@ -58,6 +69,9 @@ export class LunarComplication {
 
     // 3. Complication Bezel & Graduated Indices
     this.drawComplicationBezel(ctx, cx, cy, r, dpr);
+
+    // 4. Anti-Reflective Curved Sapphire Crystal Reflection
+    this.drawSapphireCrystalGlare(ctx, cx, cy, r, dpr);
 
     ctx.restore();
 
@@ -253,14 +267,39 @@ export class LunarComplication {
     }
   }
 
+  drawSapphireCrystalGlare(ctx, cx, cy, r, dpr) {
+    ctx.save();
+    const glareGrad = ctx.createLinearGradient(cx - r * 0.8, cy - r * 0.8, cx + r * 0.6, cy + r * 0.6);
+    glareGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+    glareGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.03)');
+    glareGrad.addColorStop(0.40, 'rgba(255, 255, 255, 0.07)');
+    glareGrad.addColorStop(0.43, 'rgba(79, 164, 232, 0.08)');
+    glareGrad.addColorStop(0.48, 'rgba(255, 255, 255, 0.0)');
+    glareGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 1.5 * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = glareGrad;
+    ctx.fill();
+    ctx.restore();
+  }
+
   updateTelemetry(comp) {
     if (!this.container) return;
 
-    const fullDays = Math.floor(comp.daysToNextFullMoon);
-    const fullHours = Math.round((comp.daysToNextFullMoon - fullDays) * 24);
+    let fullDays = Math.floor(comp.daysToNextFullMoon);
+    let fullHours = Math.round((comp.daysToNextFullMoon - fullDays) * 24);
+    if (fullHours >= 24) {
+      fullDays += 1;
+      fullHours -= 24;
+    }
 
-    const newDays = Math.floor(comp.daysToNextNewMoon);
-    const newHours = Math.round((comp.daysToNextNewMoon - newDays) * 24);
+    let newDays = Math.floor(comp.daysToNextNewMoon);
+    let newHours = Math.round((comp.daysToNextNewMoon - newDays) * 24);
+    if (newHours >= 24) {
+      newDays += 1;
+      newHours -= 24;
+    }
 
     this.container.innerHTML = `
       <div class="lunar-telemetry-header">

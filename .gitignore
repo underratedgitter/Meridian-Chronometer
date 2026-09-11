@@ -1,6 +1,9 @@
 node_modules/
 .DS_Store
 *.log
+*.tmp
+.bundle.*.tmp
+.index.*.tmp
 test-results/
 playwright-report/
 _site/

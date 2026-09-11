@@ -57,13 +57,14 @@ export class TimeController {
 
   /**
    * Sets simulation speed multiplier (e.g. 1, 60, 3600, 86400).
+   * Clamped to [0.1, 86400] to match UI rates and prevent runaway jumps.
    */
   setSpeed(multiplier) {
     let speed = Number(multiplier);
     if (!Number.isFinite(speed) || speed < 0.1) {
       speed = 1;
     }
-    this.speedMultiplier = Math.max(0.1, speed);
+    this.speedMultiplier = Math.min(86400, Math.max(0.1, speed));
     if (this.speedMultiplier !== 1 && this.isRealtime) {
       // Switching to accelerated speed automatically moves from realtime to simulated
       this.isRealtime = false;
@@ -133,6 +134,7 @@ export class TimeController {
 
   /**
    * Advances time based on elapsed real-world milliseconds.
+   * Non-finite or negative elapsed values are ignored (defensive).
    */
   tick(realElapsedMs) {
     if (!this.isPlaying) return;
@@ -141,11 +143,12 @@ export class TimeController {
       this.simulatedTimeMs = Date.now();
     } else {
       const elapsed = Number(realElapsedMs);
-      if (Number.isFinite(elapsed)) {
-        const deltaSimMs = elapsed * this.speedMultiplier * this.direction;
-        if (Number.isFinite(deltaSimMs)) {
-          this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + deltaSimMs));
-        }
+      if (!Number.isFinite(elapsed) || elapsed < 0) {
+        return;
+      }
+      const deltaSimMs = elapsed * this.speedMultiplier * this.direction;
+      if (Number.isFinite(deltaSimMs)) {
+        this.simulatedTimeMs = Math.max(-8.64e15, Math.min(8.64e15, this.simulatedTimeMs + deltaSimMs));
       }
     }
 
