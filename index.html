@@ -7,7 +7,8 @@
   <!-- Fallback CSP for file:// access where server headers are absent. Mirrors server.js SECURITY_HEADERS. -->
   <!-- NOTE (GitHub Pages): static hosting sends no custom headers, so framing is enforced -->
   <!-- by the bundle frame-buster + boot-abort (see src/index.js), not by meta frame-ancestors. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self';" />
+  <!-- frame-ancestors is omitted here: browsers ignore it in <meta> and log a console error. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>Meridian Chronometer // Astronomical Horology & Solar Observatory</title>
 
